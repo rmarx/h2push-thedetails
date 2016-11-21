@@ -54,3 +54,103 @@ msc {
   server >> browser [label="200 OK /font.woff2"];
   ...;
 }
+
+
+#6_1_push 
+msc {
+	
+  arcgradient="20",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  browser => server [label="GET /index.html"];
+  server >> browser [label="8kB /index.html"];
+  server >> browser [label="PUSH 5kB /style.css"];
+  browser => server [label="GET /font.woff2"];
+  server >> browser [label="200 OK /font.woff2"];
+  ...;
+}
+
+#6_2_pushOrigin
+msc {
+	
+  arcgradient="13",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  browser => server [label="GET /index.html"];
+  server >> browser [label="PUSH 14kB css + js"];
+  browser => server [label="ACKS"];
+  server >> browser [label="PUSH 28kB css + js"];
+  browser => server [label="ACKS"];
+  server >> browser [label="PUSH 56kB css + js"];
+  browser => server [label="ACKS"];
+  server >> browser [label="200 OK /index.html"];
+  ...;
+}
+
+#6_2_pushEdge
+msc {
+	
+  arcgradient="13",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="edge", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"],
+  origin  [label="origin", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  
+  browser => server [label="GET /index.html"];
+  server => origin [label="GET /index.html", arcskip="0.5"];
+  server >> browser [label="PUSH 14kB css + js"];
+  browser => server [label="ACKS"];
+  server >> browser [label="PUSH 28kB css + js"];
+  browser => server [label="ACKS"];
+  origin >> server [label="GET /index.html", arcskip="0.7"];
+  server >> browser [label="200 OK /index.html"];
+  ...;
+}
+
+#6_3_resource 
+msc {
+	
+  arcgradient="20",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  browser => server [label="GET /index.html"];
+  server >> browser [label="200 OK /index.html"];
+  browser => server [label="GET /style.css"];
+  server >> browser [label="200 OK /style.css"];
+  server >> browser [label="PUSH /font.woff2"];
+  ...;
+}
+
+
+#6_4_video
+msc {
+	
+  arcgradient="20",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+
+  browser => server [label="GET /manifest.mpd"];
+  server >> browser [label="200 OK /manifest.mpd"];
+  browser => server [label="GET /segment1.mp4"];
+  server >> browser [label="200 OK /segment1.mp4"];
+  server >> browser [label="PUSH /segment2.mp4"];
+  server >> browser [label="PUSH /segment3.mp4"];
+  server >> browser [label="PUSH /segment4.mp4"];
+  server >> browser [label="PUSH /segment5.mp4"];
+  ...;
+}
+
+
