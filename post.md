@@ -12,6 +12,11 @@ body
 	text-align: center;
 	font-style: italic;
 }
+
+img
+{
+	max-width: 650px;
+}
 </style>
 
 # HTTP/2 Push : The details
@@ -134,12 +139,12 @@ Now that we have a good understanding of the underlying principles at work, we c
 
 ### 2.1 When to push?
 
-"When to push?" is difficult to answer and depends on your goals. I can see rougly 4 major possibilities, each with their own downsides:
+"When to push?" is difficult to answer and depends on your goals. I can see rougly **4 major possibilities**, each with their own downsides:
 
-When1. Directly after index.html (benefit limited to: cwnd - size(index.html)) 
-When2. Before/while waiting for index.html (can slow down actual .html if wrongly prioritized/buffered)
-When3. Alongside resource (easier to get order/priorities right)
-When4. After page fully loaded (not for improving key metrics)
+ * __When1__: Directly **after** index.html (benefit limited to: cwnd - size(index.html)) 
+ * __When2__: **Before**/while waiting for index.html (can slow down actual .html if wrongly prioritized/buffered)
+ * __When3__: **Alongside** resource (easier to get order/priorities right)
+ * __When4__: **After** page fully loaded (not for improving key metrics)
 
 
 ![When to push?](images/6_whentopush.png)
@@ -151,7 +156,7 @@ When4. After page fully loaded (not for improving key metrics)
 - 3 push .woff2 with style.css 
 - 4 push 5 .mp4 segments 
 
-It seems that When1 is what [most people think about][PRPL] when talking about push, while it's arguably the least useful in the list, especially on cold connections (see 1.1). Conversely, When2 is a lot more interesting: we can actually increase the congestion window up-front, so that even large .html responses can be sent in a single RTT when they become available. Especially in the case of CDNs/edge servers this can work quite well if the origin is far away/slow: because of the small RTT between client and edge, the cwnd can grow quite quickly. It is difficult to fine-tune though: if we push too much we might fill up the buffers (1.3) and might not be able to prioritize the .html correctly. Still, if done right, they can help a lot with both initial load times and making better use of available bandwidth. [Colin Bendell][promiseOfPush] created [www.shouldipush.com](www.shouldipush.com) to help you assess the gains your site can make if pushing before index.html (before "TTFB: time to first byte") and after index.html (before "TTFR: time to first resource"). 
+It seems that __When1__ is what [most people think about][PRPL] when talking about push, while it's arguably the least useful in the list, especially on cold connections (see 1.1). Conversely, __When2__ is a lot more interesting: we can actually **increase the congestion window up-front**, so that even large .html responses can be sent in a single RTT when they become available. Especially in the case of CDNs/edge servers this can work well if the origin is far away/slow: because of the small RTT between client and edge, the cwnd can grow quite quickly. It is **difficult to fine-tune** though: if we push too much we might fill up the buffers (1.3) and might not be able to prioritize the .html correctly. Still, if done right, they can help a lot with both initial load times and making better use of available bandwidth. [Colin Bendell][promiseOfPush] created **[www.shouldipush.com](www.shouldipush.com)** to help you assess the gains your site can make if pushing before index.html (before "TTFB: time to first byte") and after index.html (before "TTFR: time to first resource"). 
 
 
 [PRPL]: https://developers.google.com/web/fundamentals/performance/prpl-pattern/
@@ -160,94 +165,69 @@ It seems that When1 is what [most people think about][PRPL] when talking about p
 <div class="caption">Figure 7: Opportunities to increase bandwidth utilization ([source][promiseOfPush])</div>
 
 
-[comment]: <> (TODO: mention wim leers here: pushing user-inserted images on drupal site?)
 
 
-Option 3 might be a little less optimal for faster first load, but this approach might make it (much) easier to manage what to push and limit the risks of delaying other resources (see next in 2.2) as resources are closely tied to other data we know is related.
+__When3__ could be a little less optimal for faster first load, but this approach might make it (much) easier to manage what to push and limit the risks of delaying other resources (see next in 2.2) as resources are closely tied to other data we know is related.
 
-Finally we have option 4, which is often ignored and sometimes controversial because there seems to be a direct, more attractive competitor: "[Resource Hints][yoavResourceHints]" (which you may know as <link rel="preload/prefetch">). Using resource hints can trigger the browser to fetch a resource before it needs it. It's often seen as superior to push because a.o. it works cross origin, doesn't suffer from the (current) caching problems and the browser can better decide how to fit it into the download schedule. So after the page is fully loaded and we have some javascript running, we might as well fetch any resource we need via the Resource Hints instead of pushing them. 
+Finally we have __When4__, which is often ignored and sometimes controversial because there seems to be a direct, more attractive competitor: **"[Resource Hints][yoavResourceHints]"** (which you may know as `<link rel="preload/prefetch">`). Using resource hints can trigger the browser to fetch a resource before it needs it, both for the current page load and the next. It's often seen as superior to push because a.o. it works cross origin, doesn't suffer from the (current) caching problems and the browser can better decide how to fit it into the download schedule. So after the page is fully loaded and we have some javascript running, we might as well fetch any resource we need via Resource Hints instead of pushing them. It is worth mentioning though that Resource Hints can suffer from the **same limitations as push**, especially in dealing with h2 priorities and excessive buffering ([chapter 5][rulesOfThumb]). 
 
 [yoavResourceHints]: https://yoavweiss.github.io/preload_and_preloaders_velocity_ams/#1
 
-Still, I feel there is a lot of room for experimentation here and cases where push can have its place. For example, in academic literature, many papers have investigated push to [speed-up video segment delivery][paperPushN]. The MPEG-DASH standard streams videos in smaller segments (e.g. 3s) and instead of waiting for the browser to request the next segment (in time before the current one runs out), we can use push to instead send available segments down so they are immediately available. Another interesting paper is [MetaPush][paperMetaPush]: here they use knowledge ... . 
+Seeing Resource Hints and push as **complementary options**, I feel there is a lot of room for experimentation here and cases where push can have its place. For example, in academic literature, many papers have investigated push to **[speed-up video][paperKpush] [segment delivery][paperDash2M]**. The MPEG-DASH standard streams videos in smaller segments (e.g. 3s) and instead of waiting for the browser to request the next segment (in time before the current one runs out), we can use push to instead **send available (live) segments immediately**. Another interesting paper is [MetaPush][paperMetaPush]: the researchers push so-called "meta files" which contain information about resources used in future pages and then use Resource Hints to download them. This should **combine the best of both worlds** and prevent excessive bandwidth usage.  
 
-Amazon + service workers 
+[paperDash2M]: http://dl.acm.org/citation.cfm?id=2964313
+[paperKpush]: http://dl.acm.org/citation.cfm?id=2578277
+[paperMetaPush]: http://conferences.sigcomm.org/sigcomm/2015/pdf/papers/allthingscellular/p57.pdf
 
-!TODO: paperPushN
-!TODO: paperMetaPush
-
-- mpeg-dash
-- metapush
-- facebook in-app 
-- amazon prefetch 
-- combinations with service workers  
+In the field, **[Facebook has been using push in their native app][facebookPush]** to quickly load images/video (as an app has no critical js/css to load first). They also talk about the practical gotcha's and their solutions. For use in apps (without a full web stack), it might also be **easier to implement** handling push requests than implementing Resource Hints and the server-side implementation might also be easier. At Velocity Amsterdam 2016, Amazon's Cynthia Mai talked about how **[Amazon aggressively prefetches resources][amazonPrefetch]** to speed up next-page load, but that `<link rel="prefetch">` was **too unpredictable and didn't scale** to large amounts of resources (as it seems to only fetch during browser idle time). A smart push scheme could be a more reliable option in this case, as you have **more control** over what is actually sent. In addition, though I haven't found many [good][swPushCASPER1] [examples][swPushCAPSER2] of this, combining push with **service workers** can be a very powerful concept that can also help with the current caching issues. Finally, I've seen it mentioned several times that an origin server might also **push updated resources to the CDN edge**, which could make for a lower-overhead API between the two.  
 
 
-
-
-1 and 2 primarily help with the initial stages 
-
-why do 3 at all? easier to setup and maintain (see 2.2).
-
-lots of opportunities in 4, lots of competition from preload/prefetch as well... tradeoffs need to be investigated. 
+[facebookPush]: https://atscaleconference.com/videos/http2-server-push-lower-latencies-around-the-world/
+[amazonPrefetch]: http://conferences.oreilly.com/velocity/devops-web-performance-eu/public/schedule/detail/54500 
+[swPushCASPER1]: https://mariusgundersen.net/module-pusher/
+[swPushCAPSER2]: http://jxck.hatenablog.com/entry/service-worker-casper 
 
 
 
 
 
+[comment]: <> (image from: http://blog.kazuhooku.com/2015/12/optimizing-performance-of-multi-tiered.html)
+[comment]: <> (also good images from: http://www.slideshare.net/kazuho/developing-the-fastest-http2-server)
+
+[comment]: <> (- priorities in h2o : http://1.bp.blogspot.com/-Rlisemt6ouM/Vl9XAuB6I9I/AAAAAAAABVQ/dvGXhvWgvfs/s400/%25E3%2582%25B9%25E3%2582%25AF%25E3%2583%25AA%25E3%2583%25BC%25E3%2583%25B3%25E3%2582%25B7%25E3%2583%25A7%25E3%2583%2583%25E3%2583%2588%2B2015-12-03%2B5.09.33.png)
 
 
-
-
-
-[comment]: <> (A lot of posts/comments on h2 push seem to focus on the "push directly after index.html" use case, which will be limited to the initial 14kB cwnd for cold connections, and as such **debate the real potential of push**. There are however several other options. [Colin Bendell talks about various opportunity windows][promiseOfPush] to optimize bandwidth usage: time to first byte (index.html), time to first resource, time to full throughput, etc. Without push, a lot of bandwidth can remain unused, especially during the early stages. His new tool [www.shouldipush.com](www.shouldipush.com) helps give some insight into this.) 
-
-![shouldipush.com bandwidth opportunities](images/6_bandwidthopportunities.png)
-<div class="caption">Figure 6: Opportunities to increase bandwidth utilization ([source][promiseOfPush])</div>
-
-But even Colin seems to primarily look towards opportunities during initial page load, while push can also be used **later**. 
-
-**A non-exhaustive list of push options could be**: 
-
-1. directly after index.html on origin (primarily limited by intitial cwnd, good for fast .html) 
-2. before index.html on origin (good for slow .html)
-3. before index.html on edge (good for non-cached .html)
-4. alongside critical resource (easier to get order/priorities right)
-5. after page fully loaded 
-6. ... 
-
-
-![When to push?](images/7_whentopush.png)
-<div class="caption">Figure 7: Various times when push can be used ([partly from source][?])</div>
-
-
-
-Link: -> is at ttfb, together with .html, not before 
--> manually instrument (ex. in node.js or java) 
-
-image from: http://blog.kazuhooku.com/2015/12/optimizing-performance-of-multi-tiered.html
-also good images from: http://www.slideshare.net/kazuho/developing-the-fastest-http2-server
-
-- priorities in h2o : http://1.bp.blogspot.com/-Rlisemt6ouM/Vl9XAuB6I9I/AAAAAAAABVQ/dvGXhvWgvfs/s400/%25E3%2582%25B9%25E3%2582%25AF%25E3%2583%25AA%25E3%2583%25BC%25E3%2583%25B3%25E3%2582%25B7%25E3%2583%25A7%25E3%2583%2583%25E3%2583%2588%2B2015-12-03%2B5.09.33.png
-
-Facebook pushes images during load 
-[pushAtFacebook]: https://www.facebook.com/atscaleevents/videos/vb.1576488989290866/1775942979345465/?type=2&theater
-
-? push to CDN, not to client? 
-
-- QUIC as future mitigation for buffer problems 
 
 ### 2.2 What to push?
 
-https://github.com/GoogleChrome/http2-push-manifest
-http://engineering.khanacademy.org/posts/js-packaging-http2.htm
+As discussed in 1.2 and 1.3, push can slow down the initial page load if we push too much or in the wrong order, as data can get stuck in buffers and (re-)prioritization can fail. 
+To get it right, we need a very detailed overview of the order in which resources are loaded and, given 1.1, their size. 
+
+This load order is also called a **"dependency graph"**. While this is quite simple in concept (simply build a tree by looking at the resources each resource includes), in practice these graphs (not trees!) can be quite complex. The very interesting **[Polaris paper from MIT][paperPolaris]** looks into how you can distill a correct dependency graph and shows that just by loading resources in the correct order/correct priorities, page load times could be improved by **34% at the median** (even without using server push or other browser support!).
+
+[paperPolaris]: http://web.mit.edu/ravinet/www/polaris_nsdi16.pdf 
+
+![Polaris: complex dependency graph](images/8_dependencygraphpolaris.png)
+<div class="caption">Figure 8: Real dependency graphs can be very complex and lead to unexpected optimal resource priorities ([source][paperPolaris])</div>
 
 
 
-For both When1 and When2, we mostly talk about cold connections but not about warm connections while they can have a much larger gain (e.g. the second/third/... page we load in a single session while connections stay open at a high cwnd). I haven't seen much material that looks into how push behaves on warm connections in practice (except, of course, for **[this excellent document][rulesOfThumb]**, chapter 1), though I can imagine this can get quite complicated in practice because of caching. Though on a site that re-uses the same critical resources on each page, push might become an option even for non-critical resources (as the critical ones are already cached from the first page load). To a lesser extent, this also goes for a repeat visit from a cold connection. All this conspires to make it very difficult to know what to push at any given time, see 2.2.
+Akamai + yoav resouce tming = automated / tooling support.
+For now: manually, often difficult. Can approach by using When3 -> less need for total overview, but also less overall control... might be tradeoff there
+-> useful for Resource Hints as well: same problem internally 
+
+
+
+
+For both __When1__ and __When2__, we mostly talk about cold connections but not about warm connections while they can have a much larger gain (e.g. the second/third/... page we load in a single session while connections stay open at a high cwnd). I haven't seen much material that looks into how push behaves on warm connections in practice (except, of course, for **[this excellent document][rulesOfThumb]**, chapter 1), though I can imagine this can get quite complicated in practice because of caching. Though on a site that re-uses the same critical resources on each page, push might become an option even for non-critical resources (as the critical ones are already cached from the first page load). To a lesser extent, this also goes for a repeat visit from a cold connection. All this conspires to make it very difficult to know what to push at any given time, see 2.2.
 
 TODO: image for cold vs warm, page 1 load vs page 2 load (page 2 can push images, if page 1 pushed/cached .css and .js)
 
+cross page: need prediction! 
+
+
+[comment]: <> (TODO: mention wim leers here: pushing user-inserted images on drupal site?)
+Recently release Drupal h2 push module (https://www.drupal.org/project/http2_server_push) simply pushes all css and js 
 
 TODO: discuss example of a file of size > 28kB? ex. html 10kB, css 
 TODO: mention streamed resources (Ex. html!) -> might benefit from initial push 
@@ -262,23 +242,47 @@ Data in a buffer cannot be re-prioritised. If pushed images are in buffers and c
 	-> makes cache-digest super-important if pushing anything other than critical assets for first paint 
 		
 
-- akamai prioritizes css and fonts 
-- h2o prioritizes all pushed js and css (assumes it's critical) (TODO: FIND REFERENCE!)
-- apache has default settings (see link)
 
 [akamaiAutomatingRUM]: https://edge.akamai.com/ec/us/highlights/developer-track-videos.jsp#edge_2016_dev_track_automating_h2_push.mp4
-pushAtFacebook
 
 SPA code splitting (lazy load of routes + prediction = bingo!)
 Save-data header: respect it!
 push metadata (ex. dependency graph, metapush) -> normally push what is going to be requested anyway, but can also do things browser normally doesn't know about (ex. only used in sw) 
+
+[yoavDependencyTrees]: https://www.w3.org/2016/09/23-webperf-minutes.html#item06
+	
+	
+	
+	
+	
+	
+	
 	
 ### 2.3 How to push?
+
+- akamai prioritizes css and fonts 
+- h2o prioritizes all pushed js and css (assumes it's critical) (TODO: FIND REFERENCE!)
+- apache has default settings (see link)
+
+Link: -> is at ttfb, together with .html, not before 
+-> manually instrument (ex. in node.js or java) 
+
+
+- preloads can currently block critical resources that are issued later (not put on lower priority)
+	-> so main.js contains base.js, preload base.js before link to main.js encountered : base.js will be sent first 
+
+not listing all how-to's, because might soon be outdated: check your stack before deciding how to push!
+
 Most importantly: browsers currently do strange things with priorities and servers even stranger. 
 	-> https://speakerdeck.com/summerwind/2-prioritization
 	-> http://blog.kazuhooku.com/2015/04/dependency-based-prioritization-makes.html
 
-- Preload/prefetch has problems 1.2 and 1.3 
+- canipush.com
+	
+	
+https://github.com/GoogleChrome/http2-push-manifest
+http://engineering.khanacademy.org/posts/js-packaging-http2.htm
+
 
 - Early Hints -> see image "issue with Link: rel preload;" : http://www.slideshare.net/kazuho/developing-the-fastest-http2-server
 
@@ -287,18 +291,16 @@ Most importantly: browsers currently do strange things with priorities and serve
 	
 - service workers: knows what's cached, can micromanage?
 
-## 3. Other considerations
-
-Preload suffers from some similar problems: filled buffers/low bw, prioritization can fuck things upTM
-
-amazon @ velocity: prefetch is too slow for large # features... push could work better 
+- 
+- QUIC as future mitigation for buffer problems 
 
 Vary: cookie 
 Cache-busting parameters / pushing old versions (stuff.js?v=1)
 
 
 
-## 4. Personal conclusions
+
+## 3. Personal conclusions
 
 - too focused on cold connections with fast servers... when origin is slow (ex. company intranets, SAP!) or when using warm connections, much more is possible 
 	-> preload/prefetch can help, but less control because who knows how browser behaviour works: push can put control into hands of devs? 
@@ -313,29 +315,8 @@ push to fill the pipe, push while waiting
 push the right stuff, push in the right order, push enough but not too much
 	[source][akamaiAutomatingRUM]
 
-# what to push?
-Recently release Drupal h2 push module (https://www.drupal.org/project/http2_server_push) simply pushes all css and js 
-
-![Test1](images/pic1.jpg)
-*caption test*
-
-
-![Test1](images/pic1.jpg)
-<div class="caption">*caption test2*</div>
-
-
-```javascript
-function (){ var x = 10; }
-code example <b>test</b>
-```
-
-[You can use numbers for reference-style link definitions][1]
-
-[1]: http://slashdot.org
-
-
-
-[shimmercatOverview]: https://www.shimmercat.com/en/blog/articles/whats-push/
+TODO: insert list of all used links here in readable format (replace [ with \])
+TODO: look through velocity notes + push presentations (colin/kazuho) to see if we missed something 
 
 \[1\]: http://slashdot2.org
 
