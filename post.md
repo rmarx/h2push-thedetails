@@ -153,13 +153,7 @@ Now that we have a good understanding of the underlying principles at work, we c
 
 
 ![When to push?](images/6_whentopush.png)
-<div class="caption">Figure 6: Various times when push can be used ([partly from source][?])</div>
-
-- 1 push directly after (with congestion window sizes, see EXTRA_akamaiEdgePush.png)
-- 2 a) push during index.html generation on origin (with congestion window sizes, see EXTRA_akamaiEdgePush.png)
-- 2 b) push during index.html generation on edge (with congestion window sizes, see EXTRA_akamaiEdgePush.png)
-- 3 push .woff2 with style.css 
-- 4 push 5 .mp4 segments 
+<div class="caption">Figure 6: Various times when push can be used</div>
 
 **Initial page load**
 
