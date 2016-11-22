@@ -55,14 +55,10 @@ The performance of h2 push is heavily dependent on the underlying networking pro
 <a name="chapter1.1"></a>
 ### 1.1 Bandwidth and TCP slow start 
 
-On the internet, every connection has a limited amount of bandwidth. If we try to send too much data at once, the network will start discarding the excess to keep the link from getting flooded/congested (packet loss). For this reason, the reliable TCP protocol uses a mechanism [called][slowstart1] [slow][slowstart2] [start][slowstart3] which basically means we start sending just a little bit of data at first and only increase our rate if the network can handle it (no packet loss occurs). In practice, this initial **congestion window (cwnd)** is about **[14kB][initcwnd]** on most linux servers. Only when the browser confirms it has successfully received that 14kB will the cwnd double in size to **28kB** and we can send that much data etc. 
+On the internet, every connection has a limited amount of bandwidth. If we try to send too much data at once, the network will start discarding the excess to keep the link from getting flooded/congested (packet loss). For this reason, the reliable TCP protocol uses a mechanism [called][slowstart1] [slow][slowstart2] [start][slowstart3] which basically means we start sending just a little bit of data at first and only increase our rate if the network can handle it (no packet loss occurs). In practice, this initial **congestion window (cwnd)** is about **[14kB][initcwnd]** on most linux servers. Only when the browser confirms it has successfully received that 14kB (sends ACK message(s)) will the cwnd double in size to **28kB** and we can send that much data. After the next AKCS arrive we can grow to **56kB** etc. 
 
 ![Impact of TCP slow start on HTTP/2 push](images/2_slowstart.png)
-<div class="caption">Figure 2: Impact of TCP slow start</div>
-
-- 1. normal push like above : 4kB html, 9kB style.css
-- 2. partial push: 10kB html, 20kB style.css : single ACK needed 
-- 2. no push: 10kB html, 20kB style.css  
+<div class="caption">Figure 2: Impact of TCP slow start (compare to theoretical performance in Figure 1)</div>
 
 This means that on a **cold** connection, we can only send 14kB of data to the browser in the first RTT anyway: if we push more, it is buffered at the server until the browser ACKs this first 14kB. In that case, push can have no additional benefits: if the browser just issues a new request along with the ACKs, it would have a similar effect (*2 RTTs* needed to download the full resource, see figure 2). Of course, on a **warm**/reused connection, where the cwnd has already grown large, you can push more data in 1 RTT. A more in-depth discussion of this can be found in chapter 1 of **[this excellent document][rulesOfThumb]**. 
 
@@ -242,9 +238,7 @@ I haven't seen much material that looks into how push behaves on warm connection
 
  
 ![Pushing warm connections with caching](images/9_warmconnectionscached.png)
-<div class="caption">Figure 9: Pushing can look very different over warm connections with cached critical resources</div>
-
-- image for cold vs warm, page 1 load vs page 2 load (page 2 can push images, if page 1 pushed/cached .css and .js)
+<div class="caption">Figure 9: Pushing can look very different over warm connections and/or with cached critical resources</div>
 
 This "wealth of options" becomes even larger if we start **prefetching** assets for future page loads, as more will be cached and we need to go further and further down the dependency graph for push. To make optimal use of this scheme, we do need to employ some good **prediction algorithms**. For some sites this will be trivial (Amazon's product list will probably lead to a detail view somewhere down the line), but other sites might need to use a RUM-based statistical/machine learning system to predict where users will go. This can of course have deep integrations with the already discussed [RUM-controlled push scheme][akamaiAutomatingRUM].
 

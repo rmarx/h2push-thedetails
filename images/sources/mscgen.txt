@@ -55,6 +55,57 @@ msc {
   ...;
 }
 
+#2_1_single
+msc {
+	
+  arcgradient="20",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  browser => server [label="GET /index.html"];
+  server >> browser [label="4kB /index.html"];
+  server >> browser [label="PUSH 9kB /style.css"];
+  ...;
+}
+
+#2_2_acks
+msc {
+	
+  arcgradient="20",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  browser => server [label="GET /index.html"];
+  server >> browser [label="10kB /index.html"];
+  server >> browser [label="PUSH 4kB /style.css"];
+  browser => server [label="ACKS"];
+  server >> browser [label="PUSH 16kB /style.css"];
+  ...;
+}
+
+#2_3_toomuch
+msc {
+	
+  arcgradient="20",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  browser => server [label="GET /index.html"];
+  server >> browser [label="14kB /index.html"];
+  browser => server [label="ACKS"];
+  server >> browser [label="6kB /index.html"];
+  server >> browser [label="PUSH 22kB /style.css"];
+  browser => server [label="ACKS"];
+  server >> browser [label="PUSH 12kB /style.css"];
+  ...;
+}
+
 
 #6_1_push 
 msc {
@@ -150,6 +201,26 @@ msc {
   server >> browser [label="PUSH /segment3.mp4"];
   server >> browser [label="PUSH /segment4.mp4"];
   server >> browser [label="PUSH /segment5.mp4"];
+  ...;
+}
+
+#9_1_cold
+msc {
+	
+  arcgradient="20",
+  hscale="0.9";
+
+  browser [label="browser", textbgcolour="#FFA500", textcolor="#000", linecolor="#FFA500", arclinecolor="#FFA500"],
+  server  [label="server", textbgcolour="#00A1DE", textcolor="#FFF", linecolor="#00A1DE", arclinecolor="#00A1DE"];
+  
+  browser => server [label="GET /index.html"];
+  server >> browser [label="10kB /index.html"];
+  server >> browser [label="PUSH 4kB /style.css"];
+  browser => server [label="ACKS"];
+  server >> browser [label="PUSH 16kB /style.css"];
+  server >> browser [label="PUSH 12kB /main.js"];
+  browser => server [label="ACKS"];
+  server >> browser [label="PUSH 8kB /main.js"];
   ...;
 }
 
