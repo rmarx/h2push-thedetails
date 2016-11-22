@@ -1,5 +1,5 @@
 
-# REVIEW VERSION: please send comments and feedback to robin.marx@uhasselt.be
+# REVIEW VERSION: please send comments and feedback to <a href="mailto:robin.marx@uhasselt.be" target="_top">robin.marx@uhasselt.be</a> or <a href="https://twitter.com/programmingart">@programmingart</a>
 
 <style>
 body 
@@ -276,20 +276,22 @@ I don't think it's useful to try to give a full overview at this point, since th
 *note: some of these were overheard during conference questions and talks with others, so not everything has a hard reference.*
 
 * **Priorities are very inconsistent**
-   * Firefox properly creates priority trees according to the spec (dependency-based), while chrome uses only very coarse priorities (weight-based only) and just 1 tree depth ([source1][browserPriorities1], [source2][browserPriorities2], [source3][browserPriorities3])
+   * Firefox properly creates priority trees according to the spec ([dependency-based][browserPriorities4]), while chrome uses only very coarse priorities (weight-based only) and just 1 tree depth ([source1][browserPriorities1], [source2][browserPriorities2], [source3][browserPriorities3])
    * Because of this, the h2o server allows [bypasses client priorities][browserPriorities3] to get the [expected behaviour][browserPrioritiesh2oReprioritize] (ex. send pushed .css/.js before .html, implying that pushed should only be used for critical resources). 
    * Akamai has said it will probably [prioritize .css and fonts][akamaiAutomatingRUM] in their automated push system.
    * Apache also allows some [fine-grained settings][browserPrioritiesApache] but defaults to a very simple scheme that doesn't take into account browser differences.
    * At this point, there is no way to define custom priorities for the browser to follow (i.e. nothing like `<img src="hero.jpg" priority="2" />`) and while this is being discussed, there are no concrete proposals yet. This means that the server has to override the priorities to get this behaviour.
-   * A deeper discussion can be found in [this mailing list thread][rulesOfThumbEmailThread1].
+   * A deeper discussion can be found in these mailing list threads: [thread 1][rulesOfThumbEmailThread1], [thread 2][firefoxPrioritiesEmailThread].
    
   [browserPriorities1]: https://speakerdeck.com/summerwind/2-prioritization
   [browserPriorities2]: http://blog.kazuhooku.com/2015/04/dependency-based-prioritization-makes.html
   [browserPriorities3]: http://www.slideshare.net/kazuho/h2o-making-http-better
+  [browserPriorities4]: http://bitsup.blogspot.be/2015/01/http2-dependency-priorities-in-firefox.html
   [browserPrioritiesh2oReprioritize]: https://h2o.examp1e.net/configure/http2_directives.html#http2-reprioritize-blocking-assets
   [browserPrioritiesApache]: https://httpd.apache.org/docs/2.4/mod/mod_http2.html#h2pushpriority
   [rulesOfThumbEmailThread1]: https://www.ietf.org/mail-archive/web/httpbisa/current/msg27742.html
   [rulesOfThumbEmailThread2]: https://www.ietf.org/mail-archive/web/httpbisa/current/msg27921.html
+  [firefoxPrioritiesEmailThread]: https://www.ietf.org/mail-archive/web/httpbisa/current/msg27742.html
    
 * **Triggering push is inconsistent and too late**
    * Some frameworks/servers allow direct [programmatic access][howtoJava] to push via an API (ex. response.push(stream) in [nodejs][howtoNode]).
@@ -315,6 +317,8 @@ I don't think it's useful to try to give a full overview at this point, since th
   
 * **Miscellaneous**
    
+   * nginx doesn't support h2 push yet and [doesn't seem to have plans to change that any time soon][nginxSupport]. 
+   
    * [PUSH_PROMISEs cannot be cancelled by the server][rulesOfThumbEmailThread2]
    
    * Pushed resources that the browser hasn't requested yet stay in a sort of separate "[unused streams][promiseOfPush]" cache for ~5 minutes, so aggressive prefetching for next pages can be problematic.  
@@ -329,40 +333,46 @@ I don't think it's useful to try to give a full overview at this point, since th
 	
    * Push can use a lot of unnecessary bandwidth when used for non-critical assets (that might not be downloaded anyway). As such, in my opinion developers (and maybe servers) should respect the ["Save-Data" header][saveData] and be much more conservative about what they push if it is set. 
 	
+[nginxSupport]: https://www.nginx.com/blog/http2-r7/#comment-2302625444 
 [khanAcademy]: http://engineering.khanacademy.org/posts/js-packaging-http2.htm
 [saveData]: https://developers.google.com/web/updates/2016/02/save-data
 
 
 ## 3. Personal conclusions
 
-![Could vs should. Source: https://img.pandawhale.com/162716-dr-ian-malcolm-meme-your-scien-wFWh.jpeg](images/could_vs_should.jpg)
+After this wall of text, I still have the feeling many (important) details on h2 push remain undiscussed. Especially given that h2 push seems to only grant **limited performance gains** (especially for cold connections on slow networks) and can sometimes even [slow down your site][samSacconeSlower], is it worth all this effort? If Akamai has to use a complex RUM-based data-mining approach to make optimal use of it and nginx doesn't consider it a priority, are we not doing exactly what [Ian Malcolm][ianChest] warned about in Jurassic Park? Shouldn't we just use Resource Hints and drop push? 
+
+<div style="text-align: center;">
+	![Could vs should. Source: https://img.pandawhale.com/162716-dr-ian-malcolm-meme-your-scien-wFWh.jpeg](images/could_vs_should.jpg)
+</div>
 
 [samSacconeSlower]: https://twitter.com/samccone/status/791312892503072768
+[ianChest]: http://i.imgur.com/euFlC.jpg
 
+While I would agree HTTP/2 push isn't ready for production yet (and, in my opinion, the same could be said to a lesser extent for HTTP/2 in general), I feel we're just getting to know these new technologies and how to best use them. It is said the [best laid plans of mice and men][bestLaidPlans] fail [at the first contact with the enemy][firstContact], and I feel the same applies for most new standards: even though many people have spent years thinking about them, things start to unravel fast when used in practice and at scale. This doens't mean they don't have merit or potential, just that we **need more time to figure out best practices** (how long have we been optimizing for HTTP/1.1?).
 
-- too focused on cold connections with fast servers... when origin is slow (ex. company intranets, SAP!) or when using warm connections, much more is possible 
-	-> preload/prefetch can help, but less control because who knows how browser behaviour works: push can put control into hands of devs? 
-	-> cross-page : use prediction to preload next things
+[bestLaidPlans]: http://www.phrases.org.uk/meanings/the-best-laid-schemes-of-mice-and-men.html 
+[firstContact]: https://en.wikiquote.org/wiki/Helmuth_von_Moltke_the_Elder
 
-- probably too much competition from link rel="prefload" and prefetch in practice though... push might die a silent death... 
-- service workers enable a lot of different options, need testing in future to see what works best 
-	
--> predicting next page + dependency graphs is key tech needed here, and it's coming, which is great! 
+Many of the biggest current issues (e.g. cache-digest, early hints) will be solved soon and implementations will mature. Other underlying concepts such as dependency graphs, explicit prioritization, user behaviour prediction (for prefetch) and more fine-grained/interleaved streaming are useful **for many more techniques than just push** and will rise in the years to come. [QUIC][mattiasQuic], the next big protocol™, is heralded to help with the [buffering issues][rulesOfThumb] and offers many other interesting features besides. Interesting times ahead for webperf and I think h2 push will find its place in the end. 
 
-push to fill the pipe, push while waiting 
-push the right stuff, push in the right order, push enough but not too much
-	[source][akamaiAutomatingRUM]
+[mattiasQuic]: https://ma.ttias.be/googles-quic-protocol-moving-web-tcp-udp/
 
-- QUIC as future mitigation for buffer problems -> push will be possible in QUIC, might flourish there 
+For me personally, I hope to do some research/work on the following items in the months to come:
+* (Cross page) push performance over warm connections and with cached critical assets 
+* Using service workers as an orchestration/scheduling layer (+ using Streams API to go fine-grained)
+* Completely bypass browser priorities and do full custom multiplexing on the server (~[Polaris][paperPolaris] from the server-side)
+* The new [http2_server_push drupal module][drupalServerPush] (in cooperation with the great [Wim Leers][wimleers])
 
-browsing large datasets in a corporate context -> could be made much quicker 
+[drupalServerPush]: https://www.drupal.org/project/http2_server_push
+[wimleers]: http://wimleers.com/article/performance-calendar-2015-are-cmses-fast-by-default-yet
 
-[comment]: <> (TODO: mention wim leers here: pushing user-inserted images on drupal site?)
-Recently release Drupal h2 push module (https://www.drupal.org/project/http2_server_push) simply pushes all css and js 
+I hope you've learned something from this post (I certainly have from the research!) and you will start/continue to experiment with HTTP/2 push and join **[the webperf revolution][soudersParallell]**! 
 
+[soudersParallell]: https://www.stevesouders.com/blog/2008/03/20/roundup-on-parallel-connections/
 
-	
-Disclaimer: primarily distilled from a few weeks of research and small amount of tests. Could be some innacuracies, please comment! 
+# FOOTER (TODO: REMOVE)
+
 	
 TODO: insert list of all used links here in readable format (replace [ with \])
 TODO: look through velocity notes + push presentations (colin/kazuho) to see if we missed something 
