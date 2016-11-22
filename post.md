@@ -145,10 +145,11 @@ Now that we have a good understanding of the underlying principles at work, we c
 ### 2.1 When to push?
 
 "When to push?" is difficult to answer and depends on your goals. I can see rougly **4 major possibilities**, each with their own downsides:
-
- * __When1__: Directly **after** index.html (benefit limited to: cwnd - size(index.html)) 
+ 
+ <a name="when1"></a> 
+ * __When1__: Directly **after** index.html (benefit limited to: cwnd - size(index.html))  <a name="when2"></a> 
  * __When2__: **Before**/while waiting for index.html (can slow down actual .html if wrongly prioritized/buffered) <a name="when3"></a> 
- * __When3__: **Alongside** resource (easier to get order/priorities right) 
+ * __When3__: **Alongside** resource (easier to get order/priorities right) <a name="when4"></a> 
  * __When4__: **After** page fully loaded (not for improving key metrics)
 
 
@@ -226,6 +227,8 @@ To then use your constructed graph to decide what to push and what to load norma
 
 While waiting for advanced supporting tools, we are stuck with mostly the manual methods, and many server/framework implementations primarily look at **critical resources at initial page load as the main use-case for push** (since they are easiest to manually fine-tune), see [2.3](#chapter2.3). It is here that [When3](#when3) can make it easier (if used conservatively): if we just push direct dependencies of a file along with a resource, we don't need to keep the full overview of the full dependency graph. This is especially interesting for sites where individual teams work on **small feature "pagelets" that [combine into a larger site][zalandoTailor]**. 
 
+TODO: bypassing browser completely and purely pushing: push_promise for everything, then send completely by the server... according to Polaris, should give nice results 
+
 Note that these dependency graphs are also needed to optimally profit from Resource Hints!
 
 [zalandoTailor]: https://github.com/zalando/tailor
@@ -267,52 +270,67 @@ If we can figure out how to make .js and [.css streamable][samSacconeStreamableC
 <a name="chapter2.3"></a>	
 ### 2.3 How to push (2016)?
 
-Up until now, we've been discussing the problems and opportunities of push without worrying (much) about what is actually possible in the current browser/server implementations. 
-I don't think it's useful to try to give a full overview at this point, since things may look very different a few months from now. Instead I will give a non-exhaustive list of current problems/quirks to make the point that it might be a little too early to really use push in production. 
+Up until now, we've been discussing the problems and opportunities of push without worrying (much) about what is **actually possible** in the current browser/server implementations. 
+I don't think it's useful to try to give a full overview at this point, since things may look very different a few months from now. Instead I will give a non-exhaustive list of current problems/quirks/gotcha's to make the point that it might be a little too early to really use push in production. 
 
 *note: some of these were overheard during conference questions and talks with others, so not everything has a hard reference.*
 
-- akamai prioritizes css and fonts 
-- h2o prioritizes all pushed js and css (assumes it's critical) (TODO: FIND REFERENCE!)
-- apache has default settings (see link)
+* **Priorities are very inconsistent**
+   * Firefox properly creates priority trees according to the spec (dependency-based), while chrome uses only very coarse priorities (weight-based only) and just 1 tree depth ([source1][browserPriorities1], [source2][browserPriorities2], [source3][browserPriorities3])
+   * Because of this, the h2o server allows [bypasses client priorities][browserPriorities3] to get the [expected behaviour][browserPrioritiesh2oReprioritize] (ex. send pushed .css/.js before .html, implying that pushed should only be used for critical resources). 
+   * Akamai has said it will probably [prioritize .css and fonts][akamaiAutomatingRUM] in their automated push system.
+   * Apache also allows some [fine-grained settings][browserPrioritiesApache] but defaults to a very simple scheme that doesn't take into account browser differences.
+   * At this point, there is no way to define custom priorities for the browser to follow (i.e. nothing like `<img src="hero.jpg" priority="2" />`) and while this is being discussed, there are no concrete proposals yet. This means that the server has to override the priorities to get this behaviour.
+   * A deeper discussion can be found in [this mailing list thread][rulesOfThumbEmailThread1].
+   
+  [browserPriorities1]: https://speakerdeck.com/summerwind/2-prioritization
+  [browserPriorities2]: http://blog.kazuhooku.com/2015/04/dependency-based-prioritization-makes.html
+  [browserPriorities3]: http://www.slideshare.net/kazuho/h2o-making-http-better
+  [browserPrioritiesh2oReprioritize]: https://h2o.examp1e.net/configure/http2_directives.html#http2-reprioritize-blocking-assets
+  [browserPrioritiesApache]: https://httpd.apache.org/docs/2.4/mod/mod_http2.html#h2pushpriority
+  [rulesOfThumbEmailThread1]: https://www.ietf.org/mail-archive/web/httpbisa/current/msg27742.html
+  [rulesOfThumbEmailThread2]: https://www.ietf.org/mail-archive/web/httpbisa/current/msg27921.html
+   
+* **Triggering push is inconsistent and too late**
+   * Some frameworks/servers allow direct [programmatic access][howtoJava] to push via an API (ex. response.push(stream) in [nodejs][howtoNode]).
+   * Most servers however are triggered to push when they receive a `Link: <resource.ext>; rel=preload;` header from the backend (ex. in [PHP][howtoPHP]). This is exactly the same header as we would use for preload Resource Hints, which makes it a bit confusing for new users, but also creates a nice fallback: if the server doesn't respect the push "command", the browser will still preload the resource. 
+   * The problem with this setup is that the header can only be sent [if the full headers (and HTTP status code) for the "parent" resource are ready][kazuhoArchitectingEarlyHints]. In the case of .html, we need to wait for the .html to be generated and see if it is a 200 or 404 or 500 or ... to be able to send along the push headers. This precludes using the [When2](#when2) usecase and defaults to [When1](#when1) (Note that this is not a limit of the HTTP/2 protocol, just from using headers to signal push).
+   * To help with this problem and inter-operation with edge servers (and similar issues with Resource Hints in general), [Kazuho Oku proposed the "103 Early Hints" status code][earlyHintsSpec], which allows the server to send headers before the final headers are known. 
+   
+[earlyHintsSpec]: https://tools.ietf.org/html/draft-kazuho-early-hints-status-code-00
+[kazuhoArchitectingEarlyHints]: http://www.slideshare.net/kazuho/developing-the-fastest-http2-server/51
 
-Link: -> is at ttfb, together with .html, not before 
--> manually instrument (ex. in node.js or java) 
+* **Browsers disagree on the spec/don't fully implement it**  
+   * Not all browsers have full implementations of H2 push yet (or even HTTP/2 itself for that matter). For example, not all of them agree which resources/responses can be pushed and not all of them correctly coalesce connections for "cross-origin" pushes that resolve to the same domain. 
+   * [Colin Bendell][promiseOfPush] created the fantastic site [www.canipush.com][canipush] to help assess how different browsers react.
+   * *Shoutout to Colin: an interface/overview akin to [www.caniuse.com](www.caniuse.com) would be interesting as well, so I don't have to open up all browsers on all platforms myself :)*
+  
+   [canipush]: http://www.canipush.com
+  
+* **Not all networks are the same**
+   * Different networks have different bandwidth/delay properties, which impacts how fast the [TCP cwnd](#chapter1.1) will grow. When pushing, these differences should be taken into account and different push schemes might be needed depending on the network. A list of common network "bandwidth delay products" can be found in [this excellent document][rulesOfThumb], end of chapter 1. They can range from 20kB for 2g to 156kB for cable, which can have a large impact. 
+   * In the same document, the writers suggest that using push on a cold 2g connection will probably have no benefits for example, unless you have a very small .html file. 
+	>> We expect more relative improvement for faster connections than for slow connections, since faster connections generally have a higher BDP. It is unfortunate that this trend is not reversed.
 
-pushed resources stay in a special "cache" for 5 minutes 
+  
+* **Miscellaneous**
+   
+   * [PUSH_PROMISEs cannot be cancelled by the server][rulesOfThumbEmailThread2]
+   
+   * Pushed resources that the browser hasn't requested yet stay in a sort of separate "[unused streams][promiseOfPush]" cache for ~5 minutes, so aggressive prefetching for next pages can be problematic.  
+   
+   * PUSH_PROMISE messages need to contain "provisional headers", wherein the server tries to predict with which headers the browser will request the resource. If the server gets it wrong (e.g. the response depends on cookies) and the provisional headers don't match the browser-generated request headers, the pushed resource can be ignored by the browser and a second request is made ([source1][promiseOfPush], [source2][rulesOfThumb], [source3][akamaiAutomatingRUM]).
 
-Save-data header: respect it!
+   * Lists of resources to push are fundamentally de-coupled from the actual .html sent, so with wrong list-management we can easily push outdated assets (ex. still sending main.js?v=1 instead of main.js?v=2). Currently there are [no browser-based APIs][promiseOfPush] to programmatically catch this or to be alerted when a pushed resource remained unused (use chrome://net-internals to find unclaimed pushes). 
 
-- preloads can currently block critical resources that are issued later (not put on lower priority)
-	-> so main.js contains base.js, preload base.js before link to main.js encountered : base.js will be sent first 
+   * Using HTTP/2 and push and improving cache-hits by splitting your files into smaller chuncks can have unintended side-effects, [for example higher overall filesize][khanAcademy].
 
-no browser offers control over priorities -> nothing like <img src="test.jpg" priority="5" /> -> to my knowledge: being discussed, nothing concrete yet 
-
-Most importantly: browsers currently do strange things with priorities and servers even stranger. 
-	-> https://speakerdeck.com/summerwind/2-prioritization
-	-> http://blog.kazuhooku.com/2015/04/dependency-based-prioritization-makes.html
-
-- canipush.com
+   * [Kazuho Oku recommends not using load balancers / TLS terminators][kazuhoArchitecting] in combination with HTTP/2 push since they can introduce extra [buffering](#chapter1.3) in the network.
 	
+   * Push can use a lot of unnecessary bandwidth when used for non-critical assets (that might not be downloaded anyway). As such, in my opinion developers (and maybe servers) should respect the ["Save-Data" header][saveData] and be much more conservative about what they push if it is set. 
 	
-https://github.com/GoogleChrome/http2-push-manifest
-http://engineering.khanacademy.org/posts/js-packaging-http2.htm
-
-
-- Early Hints -> see image "issue with Link: rel preload;" : http://www.slideshare.net/kazuho/developing-the-fastest-http2-server
-
-- send html fully first? send blocking js/css fully first, then html?
-	-> similar happens when not pushing: browser requests all files at once, if interleaving or misprioritization, end up with wrong order (less likely though, since browser requests in DOM order...)
-	
-- service workers: knows what's cached, can micromanage?
-
-- 
-- QUIC as future mitigation for buffer problems 
-
-Vary: cookie 
-Cache-busting parameters / pushing old versions (stuff.js?v=1)
-
-
+[khanAcademy]: http://engineering.khanacademy.org/posts/js-packaging-http2.htm
+[saveData]: https://developers.google.com/web/updates/2016/02/save-data
 
 
 ## 3. Personal conclusions
@@ -335,7 +353,9 @@ push to fill the pipe, push while waiting
 push the right stuff, push in the right order, push enough but not too much
 	[source][akamaiAutomatingRUM]
 
-	
+- QUIC as future mitigation for buffer problems -> push will be possible in QUIC, might flourish there 
+
+browsing large datasets in a corporate context -> could be made much quicker 
 
 [comment]: <> (TODO: mention wim leers here: pushing user-inserted images on drupal site?)
 Recently release Drupal h2 push module (https://www.drupal.org/project/http2_server_push) simply pushes all css and js 
