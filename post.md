@@ -104,7 +104,7 @@ Networks use a lot of **buffering** on all levels (routers, cell towers, OS Kern
 ![HTTP/2 buffering delays](images/4_buffers.png)
 <div class="caption">Figure 4: Large buffers can cause critical data to be delayed</div>
 
-One possible solution for this is **limiting the use of the kernel buffer** as much as possible and only give data to the kernel if it can be sent **immediately**, [as explained in detail by Kazuho Oku][tcpNotsentLowat]. This is only partly a solution however, since there can also be significant **[bufferbloat][bufferbloat1]** in the [network][bufferbloat2] [itself][bufferbloat3]. If the network allows the server to send at a high rate, only to then stall the data in large internal buffers, we will see the same detrimental effect. This becomes a greater problem for *warm* connections, that can have more data in-flight at the same time. This issue is discussed further by google engineers in chapter 2 of **[this excellent document][rulesOfThumb]**. Interestingly, they argue that h2 push can also help with this issue, by pushing (only) critical resources in the correct order. This means knowing this exact order is important to get the most out of h2 push (and that pushing images directly after .html is probably a bad idea ;).    
+One possible solution for this is **limiting the use of the kernel buffer** as much as possible and only give data to the kernel if it can be sent **immediately**, [as explained in detail by Kazuho Oku][tcpNotsentLowat]. This is only partly a solution however, since there can also be significant **[bufferbloat][bufferbloat1]** in the [network][bufferbloat2] [itself][bufferbloat3]. If the network allows the server to send at a high rate, only to then stall the data in large internal buffers, we will see the same detrimental effect. This becomes a greater problem for *warm* connections, that can have more data in-flight at the same time. This issue is discussed further by google engineers in chapter 2 of **[this excellent document][rulesOfThumb]**. Interestingly, they argue that h2 push can also help with this issue, by pushing (only) critical resources in the correct order. This means knowing this [exact order](#chapter2.2) is important to get the most out of h2 push (and that pushing images directly after .html is probably a bad idea ;).    
 
 
 
@@ -139,7 +139,7 @@ To work around these shortcomings while we wait for an [official browser impleme
 
 Now that we have a good understanding of the underlying principles at work, we can look at how these affect using h2 push in practice. 
 
-
+<a name="chapter2.1"></a>
 ### 2.1 When to push?
 
 "When to push?" is difficult to answer and depends on your goals. I can see rougly **4 major possibilities**, each with their own downsides:
@@ -191,15 +191,7 @@ In the field, **[Facebook has been using push in their native app][facebookPush]
 
 
 
-
-
-[comment]: <> (image from: http://blog.kazuhooku.com/2015/12/optimizing-performance-of-multi-tiered.html)
-[comment]: <> (also good images from: http://www.slideshare.net/kazuho/developing-the-fastest-http2-server)
-
-[comment]: <> (- priorities in h2o : http://1.bp.blogspot.com/-Rlisemt6ouM/Vl9XAuB6I9I/AAAAAAAABVQ/dvGXhvWgvfs/s400/%25E3%2582%25B9%25E3%2582%25AF%25E3%2583%25AA%25E3%2583%25BC%25E3%2583%25B3%25E3%2582%25B7%25E3%2583%25A7%25E3%2583%2583%25E3%2583%2588%2B2015-12-03%2B5.09.33.png)
-
-
-
+<a name="chapter2.2"></a>
 ### 2.2 What to push?
 
 As discussed in [1.2](#chapter1.2) and [1.3](#chapter1.3), push can slow down the initial page load if we push too much or in the wrong order, as data can get stuck in buffers and (re-)prioritization can fail. 
@@ -211,8 +203,10 @@ This load order is related to the **"dependency graph"**, which specificies reso
 
 [paperPolaris]: http://web.mit.edu/ravinet/www/polaris_nsdi16.pdf 
 
+<div style="text-align: center;">
 ![Polaris: complex dependency graph](images/8_dependencygraphpolaris.png)
 <div class="caption">Figure 8: Real dependency graphs can be very complex and lead to unexpected optimal resource priorities ([source][paperPolaris])</div>
+</div>
 
 Manually creating a correct dependency graph can be difficult, even if we're just looking at the critical resources. Some [basic tools][pushManifestTool] already exist to partly help you with this, popular frameworks like [webpack][webpackDependencies] also keep some dependency information and Yoav Weiss is reportedly looking into [exposing dependency info via the Resource Timing API][yoavDependencyTrees]. 
 
@@ -240,7 +234,7 @@ I haven't seen much material that looks into how push behaves on warm connection
 ![Pushing warm connections with caching](images/9_warmconnectionscached.png)
 <div class="caption">Figure 9: Pushing can look very different over warm connections and/or with cached critical resources</div>
 
-This "wealth of options" becomes even larger if we start **prefetching** assets for future page loads, as more will be cached and we need to go further and further down the dependency graph for push. To make optimal use of this scheme, we do need to employ some good **prediction algorithms**. For some sites this will be trivial (Amazon's product list will probably lead to a detail view somewhere down the line), but other sites might need to use a RUM-based statistical/machine learning system to predict where users will go. This can of course have deep integrations with the already discussed [RUM-controlled push scheme][akamaiAutomatingRUM].
+This "wealth of options" becomes even larger if we start **prefetching** assets for future page loads, as more will be cached and we need to go further and further down the dependency graph for push. To make optimal use of this prefetching scheme, we do need to employ some good **prediction algorithms**. For some sites this will be trivial (Amazon's product list will probably lead to a detail view somewhere down the line), but other sites might need to use a statistical/machine learning system to predict where users will go. This can of course have deep integrations with the already discussed [RUM-controlled push scheme][akamaiAutomatingRUM].
 
 [comment]: <> (SPA code splitting (lazy load of routes + prediction = bingo!))
 
@@ -367,7 +361,7 @@ For me personally, I hope to do some research/work on the following items in the
 [drupalServerPush]: https://www.drupal.org/project/http2_server_push
 [wimleers]: http://wimleers.com/article/performance-calendar-2015-are-cmses-fast-by-default-yet
 
-I hope you've learned something from this post (I certainly have from the research!) and you will start/continue to experiment with HTTP/2 push and join **[the webperf revolution][soudersParallell]**! 
+I hope you've learned something from this post (I certainly have from the research!) and that you will start/continue to experiment with HTTP/2 push and join **[the webperf revolution][soudersParallell]**! 
 
 [soudersParallell]: https://www.stevesouders.com/blog/2008/03/20/roundup-on-parallel-connections/
 
