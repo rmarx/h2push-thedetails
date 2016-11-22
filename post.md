@@ -66,13 +66,15 @@ On the internet, every connection has a limited amount of bandwidth. If we try t
 
 This means that on a **cold** connection, we can only send 14kB of data to the browser in the first RTT anyway: if we push more, it is buffered at the server until the browser ACKs this first 14kB. In that case, push can have no additional benefits: if the browser just issues a new request along with the ACKs, it would have a similar effect (*2 RTTs* needed to download the full resource, see figure 2). Of course, on a **warm**/reused connection, where the cwnd has already grown large, you can push more data in 1 RTT. A more in-depth discussion of this can be found in chapter 1 of **[this excellent document][rulesOfThumb]**. 
 
+Note that this is primarily a problem because HTTP/2 uses just 1 connection vs 6 parallell connections in most HTTP/1.1 implementations. Interestingly, there are also [reports][increaseCWND] that increasing the initial cwnd doesn't help much for general HTTP/2, but it's unclear if this holds up with h2 push as well. 
+
 
 [slowstart1]: http://www.isi.edu/nsnam/DIRECTED_RESEARCH/DR_HYUNAH/D-Research/slow-start-tcp.html
 [slowstart2]: http://packetlife.net/blog/2011/jul/5/tcp-slow-start/
 [slowstart3]: https://www.igvita.com/2011/10/20/faster-web-vs-tcp-slow-start/
 [initcwnd]: https://tylercipriani.com/blog/2016/09/25/the-14kb-in-the-tcp-initial-window/
 [rulesOfThumb]: https://docs.google.com/document/d/1K0NykTXBbbbTlv60t5MyJvXjqKGsCVNYHyLEXIxYMv0/
-
+[increaseCWND]: https://speakerdeck.com/mgooding1981/velocity-santa-clara-h2-in-the-real-world?slide=28
 
 
 <a name="chapter1.2"></a>
@@ -204,7 +206,7 @@ In the field, **[Facebook has been using push in their native app][facebookPush]
 
 ### 2.2 What to push?
 
-As discussed in 1.2 and 1.3, push can slow down the initial page load if we push too much or in the wrong order, as data can get stuck in buffers and (re-)prioritization can fail. 
+As discussed in [1.2](#chapter1.2) and [1.3](#chapter1.3), push can slow down the initial page load if we push too much or in the wrong order, as data can get stuck in buffers and (re-)prioritization can fail. 
 To get it right, we need a very detailed overview of the order in which resources are loaded and, given [1.1](#chapter1.1), their size. 
 
 **Dependency graphs**
@@ -226,8 +228,6 @@ To then use your constructed graph to decide what to push and what to load norma
 [akamaiAutomatingRUM]: https://edge.akamai.com/ec/us/highlights/developer-track-videos.jsp#edge_2016_dev_track_automating_h2_push.mp4
 
 While waiting for advanced supporting tools, we are stuck with mostly the manual methods, and many server/framework implementations primarily look at **critical resources at initial page load as the main use-case for push** (since they are easiest to manually fine-tune), see [2.3](#chapter2.3). It is here that [When3](#when3) can make it easier (if used conservatively): if we just push direct dependencies of a file along with a resource, we don't need to keep the full overview of the full dependency graph. This is especially interesting for sites where individual teams work on **small feature "pagelets" that [combine into a larger site][zalandoTailor]**. 
-
-TODO: bypassing browser completely and purely pushing: push_promise for everything, then send completely by the server... according to Polaris, should give nice results 
 
 Note that these dependency graphs are also needed to optimally profit from Resource Hints!
 
@@ -279,6 +279,7 @@ I don't think it's useful to try to give a full overview at this point, since th
    * Firefox properly creates priority trees according to the spec ([dependency-based][browserPriorities4]), while chrome uses only very coarse priorities (weight-based only) and just 1 tree depth ([source1][browserPriorities1], [source2][browserPriorities2], [source3][browserPriorities3])
    * Because of this, the h2o server allows [bypasses client priorities][browserPriorities3] to get the [expected behaviour][browserPrioritiesh2oReprioritize] (ex. send pushed .css/.js before .html, implying that pushed should only be used for critical resources). 
    * Akamai has said it will probably [prioritize .css and fonts][akamaiAutomatingRUM] in their automated push system.
+   * The Shimmercat server also uses a [learning/statistics based method][shimmercatPriorities] to determine dependency graphs and use them in prioritization.
    * Apache also allows some [fine-grained settings][browserPrioritiesApache] but defaults to a very simple scheme that doesn't take into account browser differences.
    * At this point, there is no way to define custom priorities for the browser to follow (i.e. nothing like `<img src="hero.jpg" priority="2" />`) and while this is being discussed, there are no concrete proposals yet. This means that the server has to override the priorities to get this behaviour.
    * A deeper discussion can be found in these mailing list threads: [thread 1][rulesOfThumbEmailThread1], [thread 2][firefoxPrioritiesEmailThread].
@@ -287,6 +288,7 @@ I don't think it's useful to try to give a full overview at this point, since th
   [browserPriorities2]: http://blog.kazuhooku.com/2015/04/dependency-based-prioritization-makes.html
   [browserPriorities3]: http://www.slideshare.net/kazuho/h2o-making-http-better
   [browserPriorities4]: http://bitsup.blogspot.be/2015/01/http2-dependency-priorities-in-firefox.html
+  [shimmercatPriorities]: https://www.ietf.org/mail-archive/web/httpbisa/current/msg27782.html
   [browserPrioritiesh2oReprioritize]: https://h2o.examp1e.net/configure/http2_directives.html#http2-reprioritize-blocking-assets
   [browserPrioritiesApache]: https://httpd.apache.org/docs/2.4/mod/mod_http2.html#h2pushpriority
   [rulesOfThumbEmailThread1]: https://www.ietf.org/mail-archive/web/httpbisa/current/msg27742.html
@@ -321,9 +323,11 @@ I don't think it's useful to try to give a full overview at this point, since th
    
    * [PUSH_PROMISEs cannot be cancelled by the server][rulesOfThumbEmailThread2]
    
+   * (Some) browsers currently don't send RST_STREAM messages for pushed resources that are already in cache.
+   
    * Pushed resources that the browser hasn't requested yet stay in a sort of separate "[unused streams][promiseOfPush]" cache for ~5 minutes, so aggressive prefetching for next pages can be problematic.  
    
-   * PUSH_PROMISE messages need to contain "provisional headers", wherein the server tries to predict with which headers the browser will request the resource. If the server gets it wrong (e.g. the response depends on cookies) and the provisional headers don't match the browser-generated request headers, the pushed resource can be ignored by the browser and a second request is made ([source1][promiseOfPush], [source2][rulesOfThumb], [source3][akamaiAutomatingRUM]).
+   * PUSH_PROMISE messages need to contain "provisional headers", wherein the server tries to predict with which headers the browser will request the resource. If the server gets it wrong (e.g. the response depends on cookies) and the provisional headers don't match the browser-generated request headers, the pushed resource can be ignored by the browser and a second request is made ([source1][promiseOfPush], [source2][rulesOfThumb], [source3][akamaiAutomatingRUM], [source4][howToUsePush]).
 
    * Lists of resources to push are fundamentally de-coupled from the actual .html sent, so with wrong list-management we can easily push outdated assets (ex. still sending main.js?v=1 instead of main.js?v=2). Currently there are [no browser-based APIs][promiseOfPush] to programmatically catch this or to be alerted when a pushed resource remained unused (use chrome://net-internals to find unclaimed pushes). 
 
@@ -336,16 +340,17 @@ I don't think it's useful to try to give a full overview at this point, since th
 [nginxSupport]: https://www.nginx.com/blog/http2-r7/#comment-2302625444 
 [khanAcademy]: http://engineering.khanacademy.org/posts/js-packaging-http2.htm
 [saveData]: https://developers.google.com/web/updates/2016/02/save-data
-
+[howToUsePush]: https://http2.github.io/faq/#how-can-i-use-http2-server-push
 
 ## 3. Personal conclusions
 
-After this wall of text, I still have the feeling many (important) details on h2 push remain undiscussed. Especially given that h2 push seems to only grant **limited performance gains** (especially for cold connections on slow networks) and can sometimes even [slow down your site][samSacconeSlower], is it worth all this effort? If Akamai has to use a complex RUM-based data-mining approach to make optimal use of it and nginx doesn't consider it a priority, are we not doing exactly what [Ian Malcolm][ianChest] warned about in Jurassic Park? Shouldn't we just use Resource Hints and drop push? 
+After this wall of text, I still have the feeling many (important) details on h2 push remain undiscussed. Especially given that h2 push seems to only grant **limited performance gains** (especially for cold connections on slow networks) and can sometimes even [slow down your site][samSacconeSlower], [is it worth all this effort][worthIt]? If Akamai has to use a complex RUM-based data-mining approach to make optimal use of it and nginx doesn't consider it a priority, are we not doing exactly what [Ian Malcolm][ianChest] warned about in Jurassic Park? Shouldn't we just use Resource Hints and drop push? 
 
 <div style="text-align: center;">
 	![Could vs should. Source: https://img.pandawhale.com/162716-dr-ian-malcolm-meme-your-scien-wFWh.jpeg](images/could_vs_should.jpg)
 </div>
 
+[worthIt]: https://daniel.haxx.se/blog/2016/07/25/a-workshop-monday/ 
 [samSacconeSlower]: https://twitter.com/samccone/status/791312892503072768
 [ianChest]: http://i.imgur.com/euFlC.jpg
 
@@ -359,9 +364,10 @@ Many of the biggest current issues (e.g. cache-digest, early hints) will be solv
 [mattiasQuic]: https://ma.ttias.be/googles-quic-protocol-moving-web-tcp-udp/
 
 For me personally, I hope to do some research/work on the following items in the months to come:
+* How larger initial cwnds can affect push performance 
 * (Cross page) push performance over warm connections and with cached critical assets 
 * Using service workers as an orchestration/scheduling layer (+ using Streams API to go fine-grained)
-* Completely bypass browser priorities and do full custom multiplexing on the server (~[Polaris][paperPolaris] from the server-side)
+* Completely bypass browser priorities and do full custom multiplexing on the server (~[Polaris][paperPolaris] from the server-side, i.e. by sending up-front PUSH_PROMISE for every known resource)
 * The new [http2_server_push drupal module][drupalServerPush] (in cooperation with the great [Wim Leers][wimleers])
 
 [drupalServerPush]: https://www.drupal.org/project/http2_server_push
@@ -377,7 +383,6 @@ I hope you've learned something from this post (I certainly have from the resear
 TODO: insert list of all used links here in readable format (replace [ with \])
 TODO: look through velocity notes + push presentations (colin/kazuho) to see if we missed something 
 TODO: add all #link references as links 
-
 
 \[1\]: http://slashdot2.org
 
