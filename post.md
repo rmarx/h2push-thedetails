@@ -1,5 +1,5 @@
 
-# REVIEW VERSION: please send comments and feedback to <a href="mailto:robin.marx@uhasselt.be" target="_top">robin.marx@uhasselt.be</a> or <a href="https://twitter.com/programmingart">@programmingart</a>
+# REVIEW VERSION 0.1: please send comments and feedback to <a href="mailto:robin.marx@uhasselt.be" target="_top">robin.marx@uhasselt.be</a> or <a href="https://twitter.com/programmingart">@programmingart</a>
 
 <style>
 body 
@@ -21,7 +21,9 @@ img
 
 # HTTP/2 Push : The details
 
-HTTP/2 (h2) is here and it tastes good! One of the most interesting new features is **h2 push**, which allows the server to send data to the browser without having to wait for the browser to explicitly request it first. This is useful because normally we need to wait for the browser to parse the .html file and discover the needed links before these resources can be sent. This typically leads to 2 Round-Trip-Times (RTTs) before data arrives at the browser (1 to fetch the .html, then 1 to fetch a resource). So with h2 push, we can **eliminate this exta RTT** and make our site faster! It is conceptually similar to inlining critical CSS/JS in the .html, but should give better **cache utilization**. It also helps to ensure **better bandwidth utilization** at the start of the connection. Plenty of posts talk [about][googledevOverview] [the][wikipediaOverview] [basics][grig2013], how to use [it][howtoPHP] [on][howtoIIS] [different][howtoNode] [platforms][howtoJava] and [how][debugChrome1] [to][debugChrome2] [debug][debugOverview] it.
+HTTP/2 (h2) is here and it tastes good! One of the most interesting new features is **h2 push**, which allows the server to send data to the browser without having to wait for the browser to explicitly request it first. 
+
+This is useful because normally we need to wait for the browser to parse the .html file and discover the needed links before these resources can be sent. This typically leads to 2 Round-Trip-Times (RTTs) before data arrives at the browser (1 to fetch the .html, then 1 to fetch a resource). So with h2 push, we can **eliminate this exta RTT** and make our site faster! It is conceptually similar to inlining critical CSS/JS in the .html, but should give better **cache utilization**. It also helps to ensure **better bandwidth utilization** at the start of the connection. Plenty of posts talk [about][googledevOverview] [the][wikipediaOverview] [basics][grig2013], how to use [it][howtoPHP] [on][howtoIIS] [different][howtoNode] [platforms][howtoJava] and [how][debugChrome1] [to][debugChrome2] [debug][debugOverview] it.
 
 [grig2013]: https://www.igvita.com/2013/06/12/innovating-with-http-2.0-server-push/   
 [wikipediaOverview]: https://en.wikipedia.org/wiki/HTTP/2_Server_Push
@@ -50,12 +52,14 @@ This post aims to look at some of the **low-level issues** that determine how us
 <a name="chapter1"></a>
 ## 1. Underlying basic principles and limits 
 
-The performance of h2 push is heavily dependent on the underlying networking protocols and other aspects of the h2 protocol itself. Here we introduce these principles on a tangible level to later discuss them more practically in chapter 2. 
+The performance of h2 push is heavily dependent on the underlying networking protocols and other aspects of the h2 protocol itself. Here we introduce these principles on a tangible level to later discuss them more practically in [chapter 2](#chapter2). 
 
 <a name="chapter1.1"></a>
 ### 1.1 Bandwidth and TCP slow start 
 
-On the internet, every connection has a limited amount of bandwidth. If we try to send too much data at once, the network will start discarding the excess to keep the link from getting flooded/congested (packet loss). For this reason, the reliable TCP protocol uses a mechanism [called][slowstart1] [slow][slowstart2] [start][slowstart3] which basically means we start sending just a little bit of data at first and only increase our rate if the network can handle it (no packet loss occurs). In practice, this initial **congestion window (cwnd)** is about **[14kB][initcwnd]** on most linux servers. Only when the browser confirms it has successfully received that 14kB (sends ACK message(s)) will the cwnd double in size to **28kB** and we can send that much data. After the next AKCS arrive we can grow to **56kB** etc. 
+On the internet, every connection has a limited amount of bandwidth. If we try to send too much data at once, the network will start discarding the excess to keep the link from getting flooded/congested (packet loss). For this reason, the reliable TCP protocol uses a mechanism [called][slowstart1] [slow][slowstart2] [start][slowstart3] which basically means we start by sending just a little bit of data at first and only increase our send rate if the network can handle it (no packet loss occurs). In practice, this initial **congestion window (cwnd)** is about **[14kB][initcwnd]** on most linux servers. Only when the browser confirms it has successfully received that 14kB (sends ACK message(s)) will the cwnd double in size to **28kB** and we can send that much data. After the next AKCS arrive we can grow to **56kB** etc.
+
+*note: in practice cwnd can grow in other ways too, but the behaviour is similar to the process described above, so we will use the ACK-based model as it's easy to reason about* 
 
 ![Impact of TCP slow start on HTTP/2 push](images/2_slowstart.png)
 <div class="caption">Figure 2: Impact of TCP slow start (compare to theoretical performance in Figure 1)</div>
@@ -78,7 +82,7 @@ Note that this is primarily a problem because HTTP/2 uses just 1 connection vs 6
 
 HTTP/2 only uses a single TCP connection on which it **multiplexes** data from different requests. To decide which data should be sent first if multiple resources are waiting at the same time, h2 employs **priorities**. Basically, each resource is given a certain order in which it has to be sent: for example .html is the most important, so it has a priority of 1, .css and .js get 2 and 3, while images get 4. 
 
-If we have multiple resources with the same priority, their data is **interleaved**: each sends a chunk in turn. This interleaving can lead to both resources being delayed, as it takes longer for them to fully download. This can work well for progressively streamed/parsed resources, such as progressive jpgs or .html, but possibly less so for resources that need to be fully downloaded to be used (e.g. .css, .js and fonts).
+If we have multiple resources with the same priority, their data can be **interleaved**: each sends a chunk in turn. This interleaving can lead to both resources being delayed, as it takes longer for them to fully download. This can work well for progressively streamed/parsed resources, such as progressive jpgs or .html, but possibly less so for resources that need to be fully downloaded to be used (e.g. .css, .js and fonts).
 
 ![HTTP/2 priorities](images/3_priorities.png)
 <div class="caption">Figure 3: HTTP/2 priorities and interleaving</div>
@@ -98,13 +102,13 @@ HTTP/2 prioritization is much more complex than these examples, sorting prioriti
 <a name="chapter1.3"></a>
 ### 1.3 Buffers
 
-Networks use a lot of **buffering** on all levels (routers, cell towers, OS Kernel, etc.) to handle **bursts of incoming data** which cannot be immediately transmitted. In most cases, once data is in one of these buffers, it's impossible to get it out or re-arrange the data in the buffer. This can make it impossible to correctly apply the **HTTP/2 priorities**; as a contrived example, if we push 3 large images right after our .html, they can fill up the **send buffer**. The browser then parses the .html, discovers an important .css file and requests it. The server wants to send this before the rest of the images, but can't because it is unable to access data in the buffers. Its only choice is to send the .css after some image data, effectively delaying it and the page load, see figure 4.   
+Networks use a lot of **buffering** on all levels (routers, cell towers, OS Kernel, etc.) to handle **bursts of incoming data** which cannot be immediately transmitted. In most cases, once data is in one of these buffers, it's impossible to get it out or re-arrange the data in the buffer. This can make it impossible to correctly apply the **HTTP/2 priorities**. As a contrived example, if we push 3 large images right after our .html, they can fill up the **send buffer**. The browser then parses the .html, discovers an important .css file and requests it. The server wants to send this before the rest of the images (because it blocks the page render), but can't because it is unable to access data in the buffers. Its only choice is to send the .css after some image data, effectively delaying it and the page load, see figure 4.   
 
 
 ![HTTP/2 buffering delays](images/4_buffers.png)
-<div class="caption">Figure 4: Large buffers can cause critical data to be delayed</div>
+<div class="caption">Figure 4: Large buffers can cause critical data to be delayed. The server can only re-prioritize the userspace buffer.</div>
 
-One possible solution for this is **limiting the use of the kernel buffer** as much as possible and only give data to the kernel if it can be sent **immediately**, [as explained in detail by Kazuho Oku][tcpNotsentLowat]. This is only partly a solution however, since there can also be significant **[bufferbloat][bufferbloat1]** in the [network][bufferbloat2] [itself][bufferbloat3]. If the network allows the server to send at a high rate, only to then stall the data in large internal buffers, we will see the same detrimental effect. This becomes a greater problem for *warm* connections, that can have more data in-flight at the same time. This issue is discussed further by google engineers in chapter 2 of **[this excellent document][rulesOfThumb]**. Interestingly, they argue that h2 push can also help with this issue, by pushing (only) critical resources in the correct order. This means knowing this [exact order](#chapter2.2) is important to get the most out of h2 push (and that pushing images directly after .html is probably a bad idea ;).    
+One possible solution for this is **limiting the use of the kernel buffer** as much as possible and only give data to the kernel if it can be sent **immediately**, [as explained in detail by Kazuho Oku][tcpNotsentLowat]. This is only partly a solution however, since there can also be significant **[bufferbloat][bufferbloat1]** in the [network][bufferbloat2] [itself][bufferbloat3]. If the network allows the server to send at a high rate, only to then stall the data in large internal buffers, we will see the same detrimental effect. This becomes a greater problem for *warm* connections, that can have more data in-flight at the same time. This issue is discussed further by google engineers in chapter 2 of **[this excellent document][rulesOfThumb]**. Interestingly, they argue that h2 push can also help with this issue, by pushing (only) critical resources in the correct order. This means knowing this **[exact order](#chapter2.2)** is important to get the most out of h2 push (and that pushing images directly after .html is probably a bad idea ;).    
 
 
 
@@ -119,7 +123,7 @@ One possible solution for this is **limiting the use of the kernel buffer** as m
 ### 1.4 Caching 
 
 Modern browsers (and network intermediaries like CDNs) make heavy use of caching to quickly load previously downloaded resources without having to issue a new request to the server. 
-This of course means we don't want to push already cached resources, as this would **waste bandwidth** and might delay other resources that aren't cached yet. The problem is knowing which resources are cached; ideally the browser would send along a **summary of its cache** when requesting index.html, but this concept is not in the official HTTP/2 standard and not implemented in any browser at this moment. Instead, the official method is that the browser can signal the server to cancel a push with a so-called **RST_STREAM** reply to a PUSH_PROMISE. However, in practice, [browsers don't do this either][akamaiAutomatingRUM], and will happily accept pushes for resources they have already cached. Even if they would use RST_STREAM, we can question how effective it would be: much (or all) of the data of the push can already be **en-route**/buffered before the RST_STREAM arrives at the server, rendering it void.
+This of course means we don't want to push already cached resources, as this would **waste bandwidth** and might **delay other resources** that aren't cached yet. The problem is knowing which resources are cached; ideally the browser would send along a **summary of its cache** when requesting index.html, but this concept is not in the official HTTP/2 standard and not implemented in any browser at this moment. Instead, the official method is that the browser can signal the server to cancel a push with a so-called **RST_STREAM** reply to a PUSH_PROMISE. However, in practice, [(some) browsers don't do this either][akamaiAutomatingRUM], and will happily accept pushes for resources they have already cached. Even if they would use RST_STREAM, we can question how effective it would be: much (or all) of the data of the push can already be **en-route/buffered** before the RST_STREAM arrives at the server, rendering it void.
 
 
 ![HTTP/2 RST_STREAM](images/5_rststream.png)
@@ -127,7 +131,7 @@ This of course means we don't want to push already cached resources, as this wou
 
 [promiseOfPush]: http://cdn.oreillystatic.com/en/assets/1/event/167/The%20promise%20of%20Push%20Presentation.pdf
 
-To work around these shortcomings while we wait for an [official browser implementation][cachedigest], several options have been proposed, see chapter 3 of **[this excellent document][rulesOfThumb]**. The canonical concept is to [have the server set a cookie][casper1] [detailing which resources it has pushed][casper2] and check this cookie for each request to see what should be pushed. This seems to work well in practice, though it can fail if resources are removed from the client's cache in the mean time. 
+To work around these shortcomings while we wait for an [official browser implementation][cachedigest], several options have been proposed, see chapter 3 of **[this excellent document][rulesOfThumb]**. The canonical concept is to [have the server set a cookie][casper1] [detailing which resources it has pushed][casper2] and check this cookie for each request to see what push targets remain. This seems to work well in practice, though it can fail if resources are removed from the client's cache in the mean time. 
 
 
 [cachedigest]: https://tools.ietf.org/html/draft-ietf-httpbis-cache-digest-00
@@ -147,8 +151,8 @@ Now that we have a good understanding of the underlying principles at work, we c
  <a name="when1"></a> 
  * __When1__: Directly **after** index.html (benefit limited to: cwnd - size(index.html))  <a name="when2"></a> 
  * __When2__: **Before**/while waiting for index.html (can slow down actual .html if wrongly prioritized/buffered) <a name="when3"></a> 
- * __When3__: **Alongside** resource (easier to get order/priorities right) <a name="when4"></a> 
- * __When4__: **After** page fully loaded (not for improving key metrics)
+ * __When3__: **Alongside** resource (can be non-optimal but easier to get order/priorities right) <a name="when4"></a> 
+ * __When4__: **After** page fully loaded (not for improving key pageload metrics)
 
 
 ![When to push?](images/6_whentopush.png)
@@ -156,7 +160,7 @@ Now that we have a good understanding of the underlying principles at work, we c
 
 **Initial page load**
 
-It seems that __When1__ is what [most people think about][PRPL] when talking about push, while it's arguably the least useful in the list, especially on cold connections (see 1.1). Conversely, __When2__ is a lot more interesting: we can actually **increase the congestion window up-front**, so that even large .html responses can be sent in a single RTT when they become available. Especially in the case of CDNs/edge servers this can work well if the origin is far away/slow: because of the small RTT between client and edge, the cwnd can grow quite quickly. It is **difficult to fine-tune** though: if we push too much we might fill up the buffers (1.3) and might not be able to prioritize the .html correctly. Still, if done right, they can help a lot with both initial load times and making better use of available bandwidth. [Colin Bendell][promiseOfPush] created **[www.shouldipush.com](www.shouldipush.com)** to help you assess the gains your site can make if pushing before index.html (before "TTFB: time to first byte") and after index.html (before "TTFR: time to first resource"). 
+It seems that __When1__ is what [most people think about][PRPL] when talking about push, while it's arguably the least useful in the list, especially on cold connections (see [1.1](#chapter1.1)). Conversely, __When2__ is a lot more interesting: we can actually **increase the congestion window up-front**, so that even large .html responses can be sent in a single RTT when they become available. Especially in the case of CDNs/edge servers this can work well if the origin is far away/slow: because of the small RTT between client and edge, the cwnd can grow quite quickly. It is **difficult to fine-tune** though: if we push too much we might fill up the buffers ([1.3](#chapter1.3)) and might not be able to prioritize the .html correctly. [Colin Bendell][promiseOfPush] created **[www.shouldipush.com](www.shouldipush.com)** to help you assess the gains your site can make if pushing before index.html (before "TTFB: time to first byte") and after index.html (before "TTFR: time to first resource"). 
 
 
 [PRPL]: https://developers.google.com/web/fundamentals/performance/prpl-pattern/
@@ -167,7 +171,7 @@ It seems that __When1__ is what [most people think about][PRPL] when talking abo
 
 
 
-__When3__ could be a little less optimal for faster first load, but this approach might make it (much) easier to manage what to push and limit the risks of delaying other resources (see next in 2.2) as resources are closely tied to other data we know is related.
+__When3__ could be a little less optimal for faster first load, but this approach might make it (much) easier to manage what to push and limit the risks of delaying other resources (see next in [2.2](#chapter2.2)) as resources are closely tied to other related data.
 
 **After load and across pages**
 
@@ -175,13 +179,13 @@ Finally we have __When4__, which is often ignored and sometimes controversial be
 
 [yoavResourceHints]: https://yoavweiss.github.io/preload_and_preloaders_velocity_ams/#1
 
-Seeing Resource Hints and push as **complementary options**, I feel there is a lot of room for experimentation here and cases where push can have its place. For example, in academic literature, many papers have investigated push to **[speed-up video][paperKpush] [segment delivery][paperDash2M]**. The MPEG-DASH standard streams videos in smaller segments (e.g. 3s) and instead of waiting for the browser to request the next segment (in time before the current one runs out), we can use push to instead **send available (live) segments immediately**. Another interesting paper is [MetaPush][paperMetaPush]: the researchers push so-called "meta files" which contain information about resources used in future pages and then use Resource Hints to download them. This should **combine the best of both worlds** and prevent excessive bandwidth usage.  
+Seeing Resource Hints and push as **complementary options**, I feel there is a lot of room for experimentation here and cases where push can have its place. For example, in academic literature, many papers have investigated push to **[speed-up video][paperKpush] [segment delivery][paperDash2M]**. The MPEG-DASH standard streams videos in small segments (e.g. 3s) and instead of waiting for the browser to request the next segment (in time before the current one runs out), we can use push to instead **send available (live) segments immediately**. Another interesting paper is [MetaPush][paperMetaPush]: the researchers push so-called "meta files" which contain information about resources used in future pages and then use Resource Hints to download them. This should **combine the best of both worlds** and prevent excessive bandwidth usage.  
 
 [paperDash2M]: http://dl.acm.org/citation.cfm?id=2964313
 [paperKpush]: http://dl.acm.org/citation.cfm?id=2578277
 [paperMetaPush]: http://conferences.sigcomm.org/sigcomm/2015/pdf/papers/allthingscellular/p57.pdf
 
-In the field, **[Facebook has been using push in their native app][facebookPush]** to quickly load images/video (as an app has no critical js/css to load first). They also talk about the practical gotcha's and their solutions. For use in apps (without a full web stack), it might also be **easier to implement** handling push requests than implementing Resource Hints and the server-side implementation might also be easier. At Velocity Amsterdam 2016, Amazon's Cynthia Mai talked about how **[Amazon aggressively prefetches resources][amazonPrefetch]** to speed up next-page load, but that `<link rel="prefetch">` was **too unpredictable and didn't scale** to large amounts of resources (as it seems to only fetch during browser idle time). A smart push scheme could be a more reliable option in this case, as you have **more control** over what is actually sent. In addition, though I haven't found many [good][swPushCASPER1] [examples][swPushCAPSER2] of this, combining push with **service workers** can be a very powerful concept that can also help with the current caching issues. Finally, I've seen it mentioned several times that an origin server might also **push updated resources to the CDN edge**, which could make for a lower-overhead API between the two.  
+In the field, **[Facebook has been using push in their native app][facebookPush]** to quickly load images/video (as an app has no critical js/css to load first). They also talk about the practical gotcha's and their solutions. At Velocity Amsterdam 2016, Amazon's Cynthia Mai talked about how **[Amazon aggressively prefetches resources][amazonPrefetch]** to speed up next-page load, but that `<link rel="prefetch">` was **too unpredictable and didn't scale** to large amounts of resources (as it seems to only fetch during browser idle time). A smart push scheme could be a more reliable option in this case, as you have **more control** over what is actually sent. In addition, though I haven't found many [good][swPushCASPER1] [examples][swPushCAPSER2] of this, combining push with **service workers** can be a very powerful concept that can also help with the current caching issues. Finally, I've seen it mentioned several times that an origin server might also **push updated resources to the CDN edge**, which could make for a lower-overhead API between the two.  
 
 
 [facebookPush]: https://atscaleconference.com/videos/http2-server-push-lower-latencies-around-the-world/
@@ -195,29 +199,30 @@ In the field, **[Facebook has been using push in their native app][facebookPush]
 ### 2.2 What to push?
 
 As discussed in [1.2](#chapter1.2) and [1.3](#chapter1.3), push can slow down the initial page load if we push too much or in the wrong order, as data can get stuck in buffers and (re-)prioritization can fail. 
-To get it right, we need a very detailed overview of the order in which resources are loaded and, given [1.1](#chapter1.1), their size. 
+To get it right, we need a very detailed overview of the order in which resources are loaded. 
 
 **Dependency graphs**
 
-This load order is related to the **"dependency graph"**, which specificies resource interdependencies. While this is quite simple in concept (simply build a tree by looking at the resources each resource includes), in practice these graphs can be quite complex. The very interesting **[Polaris paper from MIT][paperPolaris]** looks into how you can distill a correct dependency graph and shows that just by loading resources in the correct order/with correct priorities, page load times could be improved by **34% at the median** (even without using server push or other browser support!).
+This load order is related to the **"dependency graph"**, which specificies resource interdependencies. While this is quite simple in concept (simply build a tree by looking at the child resources each parent resource includes), in practice these graphs can be quite complex. The very interesting **[Polaris paper from MIT][paperPolaris]** looks into how you can distill a correct dependency graph and shows that just by loading resources in the correct order/with correct priorities, page load times could be improved by **34% at the median** (even without using server push or other browser support!).
 
 [paperPolaris]: http://web.mit.edu/ravinet/www/polaris_nsdi16.pdf 
 
 <div style="text-align: center;">
 ![Polaris: complex dependency graph](images/8_dependencygraphpolaris.png)
-<div class="caption">Figure 8: Real dependency graphs can be very complex and lead to unexpected optimal resource priorities ([source][paperPolaris])</div>
+<div class="caption">Figure 8: Real dependency graphs can be very complex and lead to unexpected optimal resource priorities and load orders ([source][paperPolaris])</div>
 </div>
 
 Manually creating a correct dependency graph can be difficult, even if we're just looking at the critical resources. Some [basic tools][pushManifestTool] already exist to partly help you with this, popular frameworks like [webpack][webpackDependencies] also keep some dependency information and Yoav Weiss is reportedly looking into [exposing dependency info via the Resource Timing API][yoavDependencyTrees]. 
 
-To then use your constructed graph to decide what to push and what to load normally/via Resource Hints is even more difficult. [The most extensive work I've seen on this comes from **Akamai**][akamaiAutomatingRUM]. They use collected **Resource Timing data from RUM** (Real User Monitoring) to extract the dependency graph and then statistically decide which resources should be pushed. The integration into their CDN means they can also watch out for (large) **regressions** from push and adapt accordingly. Their approach shows how difficult it can be to properly leverage push and to what lengths you need to go to optimize it. 
+To then use your constructed graph to decide what to push and what to load normally/via Resource Hints is even more difficult. [The most extensive work I've seen on this comes from **Akamai**][akamaiAutomatingRUM]. They use collected **Resource Timing data from RUM** (Real User Monitoring) to extract the dependency graph and then statistically decide which resources should be pushed. The integration into their CDN means they can also watch out for (large) **regressions** from push and adapt accordingly. Their approach shows how difficult it can be to properly leverage push and to what lengths you need to go to optimize it. Alternatively, [CloudFlare discussed pros and cons][cloudflarePush] of other ways a CDN can provide push. 
 
 [pushManifestTool]: https://github.com/GoogleChrome/http2-push-manifest
 [webpackDependencies]: https://webpack.github.io/docs/code-splitting.html
 [yoavDependencyTrees]: https://www.w3.org/2016/09/23-webperf-minutes.html#item06
 [akamaiAutomatingRUM]: https://edge.akamai.com/ec/us/highlights/developer-track-videos.jsp#edge_2016_dev_track_automating_h2_push.mp4
+[cloudflarePush]:https://github.com/HTTPWorkshop/workshop2016/blob/master/talks/server-push.pdf
 
-While waiting for advanced supporting tools, we are stuck with mostly the manual methods, and many server/framework implementations primarily look at **critical resources at initial page load as the main use-case for push** (since they are easiest to manually fine-tune), see [2.3](#chapter2.3). It is here that [When3](#when3) can make it easier (if used conservatively): if we just push direct dependencies of a file along with a resource, we don't need to keep the full overview of the full dependency graph. This is especially interesting for sites where individual teams work on **small feature "pagelets" that [combine into a larger site][zalandoTailor]**. 
+While waiting for advanced supporting tools, we are stuck with mostly the manual methods, and many server/framework implementations primarily look at **critical resources at initial page load as the main use-case for push** (probably since they are easiest to manually fine-tune), see [2.3](#chapter2.3). It is here that [When3](#when3) can make it easier (if used conservatively): if we just push direct child dependencies along with a resource, we don't need to keep the overview of the full dependency graph. This is especially interesting for sites where individual teams work on **small feature "pagelets" that [combine into a larger site][zalandoTailor]**. 
 
 Note that these dependency graphs are also needed to optimally profit from Resource Hints!
 
@@ -226,7 +231,7 @@ Note that these dependency graphs are also needed to optimally profit from Resou
 
 **Warm connections and caching**
 
-Getting the push order right is particularly important for cold connections and first page loads (nothing cached). For warm connections or in case many critical resources have already been cached, we suddenly get **a lot more options** because we can now push non-critical things: do we first push ad-related resources? our hero image or main content image(s)? do we start pre-loading video segments? social integrations/comments section? I think it depends on the type of site you run and what experience you want to prioritize for your users. I think that it is in these situations push will really start to shine and can provide significant benefits.  
+Getting the push order right is particularly important for cold connections and first page loads (nothing cached). For warm connections or in case many critical resources have already been cached, we suddenly get **a lot more options** because we can now push non-critical things: do we first push ad-related resources? our hero image or main content image(s)? do we start pre-loading video segments? social integrations/comments section? I think it depends on the type of site you run and what experience you want to prioritize for your users. I feel that it is in these situations push will really start to shine and can provide significant benefits.  
 
 I haven't seen much material that looks into how push behaves on warm connections/cross pages in practice (except, of course, for **[this excellent document][rulesOfThumb]**, chapter 1), which is probably because of the caching issues and the fact that it's more difficult to test with existing tools. It also isn't mentioned in [Akamai's RUM-based system][akamaiAutomatingRUM], probably because they are focusing on the other use cases first. Because of the many possible permutations and trickyness of push, I predict it will be some time before we see this being used properly. 
 
@@ -240,14 +245,14 @@ This "wealth of options" becomes even larger if we start **prefetching** assets 
 
 **Fine-grained pushing/streaming**
 
-Up to this moment, we have primarily considered resources as single files which need to be downloaded fully to be used. While this is true for some resource types (.css, .js, fonts) others already allow streaming (.html, progressive images), where the browser starts using/processing the data incrementally/asap. For streamable resources, we might actually use resource interleaving (see [1.2](#chapter1.2)) to our benefit to get some version of the content displayed early on. 
+Up to this moment, we have primarily considered resources as single files which need to be **downloaded fully to be used**. While this is true for some resource types (.css, .js, fonts) others already allow streaming (.html, progressive images), where the browser starts using/processing the data incrementally/asap. For streamable resources, we might actually use resource interleaving (see [1.2](#chapter1.2)) to our benefit to get some version of the content displayed early on. 
 
-For example, the h2o server [interrupts sending .html data][kazuhoArchitecting] when requests for .css come in. Akamai did [very in-depth research][akamaiProgressiveImages] on progressive images and the Shimmercat server uses a very nice implementation that allows you to [prioritize parts of progressive images][shimmercatProgressiveImages]. And of course, every browser aggressively scans incoming .html for new links to request. 
+For example, the h2o server [interrupts sending .html data][kazuhoArchitecting] when requests for .css come in. Akamai did [impressively in-depth research][akamaiProgressiveImages] on progressive images and the Shimmercat server uses a very nice implementation that allows you to [prioritize parts of (progressive) images][shimmercatProgressiveImages]. And of course, every browser aggressively scans incoming .html for new links to request. 
 
 [akamaiProgressiveImages]: http://cdn.oreillystatic.com/en/assets/1/event/158/Your%20hero%20images%20need%20you_%20Save%20the%20day%20with%20HTTP_2%20image%20loading%20Presentation.pdf
 [shimmercatProgressiveImages]: https://www.shimmercat.com/en/docs/1.5/coordinated-image-loading/
 
-If we can figure out how to make .js and [.css streamable][samSacconeStreamableCSS] or make tools to [split larger files][jakeArchibaldCSSLinks], we can move towards incredibly fine-grained pushing and get more use out of the low cwnds on cold connections ([1.1](#chapter1.1). Advances in the [Streaming API][jakeArchibaldStreaming]/service workers might mean we don't even have to wait for browser vendors to start experimenting with this. 
+If we can figure out how to make .js and [.css streamable][samSacconeStreamableCSS] or make tools to [split larger files][jakeArchibaldCSSLinks], we can move towards incredibly fine-grained pushing and get more use out of the low cwnds on cold connections ([1.1](#chapter1.1)). Advances in the [Streaming API][jakeArchibaldStreaming]/service workers might mean we don't even have to wait for browser vendors to start experimenting with this. 
 
 [samSacconeStreamableCSS]: https://github.com/samccone/streaming-css
 [jakeArchibaldCSSLinks]: https://jakearchibald.com/2016/link-in-body/
@@ -265,7 +270,7 @@ I don't think it's useful to try to give a full overview at this point, since th
 
 * **Priorities are very inconsistent**
    * Firefox properly creates priority trees according to the spec ([dependency-based][browserPriorities4]), while chrome uses only very coarse priorities (weight-based only) and just 1 tree depth ([source1][browserPriorities1], [source2][browserPriorities2], [source3][browserPriorities3])
-   * Because of this, the h2o server allows [bypasses client priorities][browserPriorities3] to get the [expected behaviour][browserPrioritiesh2oReprioritize] (ex. send pushed .css/.js before .html, implying that pushed should only be used for critical resources). 
+   * Because of this, the h2o server allows [bypassing of client priorities][browserPriorities3] to get the [expected behaviour][browserPrioritiesh2oReprioritize] (ex. send pushed .css/.js before .html, implying that pushed should only be used for critical resources). 
    * Akamai has said it will probably [prioritize .css and fonts][akamaiAutomatingRUM] in their automated push system.
    * The Shimmercat server also uses a [learning/statistics based method][shimmercatPriorities] to determine dependency graphs and use them in prioritization.
    * Apache also allows some [fine-grained settings][browserPrioritiesApache] but defaults to a very simple scheme that doesn't take into account browser differences.
@@ -286,8 +291,8 @@ I don't think it's useful to try to give a full overview at this point, since th
 * **Triggering push is inconsistent and too late**
    * Some frameworks/servers allow direct [programmatic access][howtoJava] to push via an API (ex. response.push(stream) in [nodejs][howtoNode]).
    * Most servers however are triggered to push when they receive a `Link: <resource.ext>; rel=preload;` header from the backend (ex. in [PHP][howtoPHP]). This is exactly the same header as we would use for preload Resource Hints, which makes it a bit confusing for new users, but also creates a nice fallback: if the server doesn't respect the push "command", the browser will still preload the resource. 
-   * The problem with this setup is that the header can only be sent [if the full headers (and HTTP status code) for the "parent" resource are ready][kazuhoArchitectingEarlyHints]. In the case of .html, we need to wait for the .html to be generated and see if it is a 200 or 404 or 500 or ... to be able to send along the push headers. This precludes using the [When2](#when2) usecase and defaults to [When1](#when1) (Note that this is not a limit of the HTTP/2 protocol, just from using headers to signal push).
-   * To help with this problem and inter-operation with edge servers (and similar issues with Resource Hints in general), [Kazuho Oku proposed the "103 Early Hints" status code][earlyHintsSpec], which allows the server to send headers before the final headers are known. 
+   * The problem with this setup is that the header can only be sent [if the full headers (and HTTP status code) for the "parent" resource are ready][kazuhoArchitectingEarlyHints]. In the case of .html, [we need to wait for the .html to be generated][promiseOfPush] and see if it is a 200 or 404 or 500 or ... to be able to send along the push headers. This precludes using the [When2](#when2) usecase and defaults to [When1](#when1) (Note that this is not a limit of the HTTP/2 protocol, just from using headers to signal push).
+   * To help with this problem and inter-operation with edge servers (and similar issues with Resource Hints in general), [Kazuho Oku proposed the **"103 Early Hints"** status code][earlyHintsSpec], which allows the server to send headers before the final headers are known. 
    
 [earlyHintsSpec]: https://tools.ietf.org/html/draft-kazuho-early-hints-status-code-00
 [kazuhoArchitectingEarlyHints]: http://www.slideshare.net/kazuho/developing-the-fastest-http2-server/51
@@ -319,7 +324,7 @@ I don't think it's useful to try to give a full overview at this point, since th
 
    * Lists of resources to push are fundamentally de-coupled from the actual .html sent, so with wrong list-management we can easily push outdated assets (ex. still sending main.js?v=1 instead of main.js?v=2). Currently there are [no browser-based APIs][promiseOfPush] to programmatically catch this or to be alerted when a pushed resource remained unused (use chrome://net-internals to find unclaimed pushes). 
 
-   * Using HTTP/2 and push and improving cache-hits by splitting your files into smaller chuncks can have unintended side-effects, [for example higher overall filesize][khanAcademy].
+   * Using HTTP/2 and push and improving cache-hits by splitting your files into smaller chuncks can have unintended side-effects, [for example higher overall filesize][khanAcademy] due to [lower compression ratios][kazuhoArchitectingCompression]. 
 
    * [Kazuho Oku recommends not using load balancers / TLS terminators][kazuhoArchitecting] in combination with HTTP/2 push since they can introduce extra [buffering](#chapter1.3) in the network.
 	
@@ -327,6 +332,7 @@ I don't think it's useful to try to give a full overview at this point, since th
 	
 [nginxSupport]: https://www.nginx.com/blog/http2-r7/#comment-2302625444 
 [khanAcademy]: http://engineering.khanacademy.org/posts/js-packaging-http2.htm
+[kazuhoArchitectingCompression]: http://www.slideshare.net/kazuho/reorganizing-website-architecture-for-http2-and-beyond/41
 [saveData]: https://developers.google.com/web/updates/2016/02/save-data
 [howToUsePush]: https://http2.github.io/faq/#how-can-i-use-http2-server-push
 
@@ -347,7 +353,7 @@ While I would agree HTTP/2 push isn't ready for production yet (and, in my opini
 [bestLaidPlans]: http://www.phrases.org.uk/meanings/the-best-laid-schemes-of-mice-and-men.html 
 [firstContact]: https://en.wikiquote.org/wiki/Helmuth_von_Moltke_the_Elder
 
-Many of the biggest current issues (e.g. cache-digest, early hints) will be solved soon and implementations will mature. Other underlying concepts such as dependency graphs, explicit prioritization, user behaviour prediction (for prefetch) and more fine-grained/interleaved streaming are useful **for many more techniques than just push** and will rise in the years to come. [QUIC][mattiasQuic], the next big protocol™, is heralded to help with the [buffering issues][rulesOfThumb] and offers many other interesting features besides. Interesting times ahead for webperf and I think h2 push will find its place in the end. 
+Many of the biggest current issues (e.g. cache-digest, early hints) will be solved soon and implementations will mature. Other underlying concepts such as dependency graphs, explicit prioritization, user behaviour prediction (for prefetch) and more fine-grained/interleaved streaming are useful **for many more techniques than just push** and will rise in the years to come. [QUIC][mattiasQuic], the next big protocol™, is heralded to help with the [buffering issues][rulesOfThumb] and offers many other interesting features besides. Interesting times lie ahead for webperf and I think h2 push will find its place in the end. 
 
 [mattiasQuic]: https://ma.ttias.be/googles-quic-protocol-moving-web-tcp-udp/
 
@@ -365,13 +371,5 @@ I hope you've learned something from this post (I certainly have from the resear
 
 [soudersParallell]: https://www.stevesouders.com/blog/2008/03/20/roundup-on-parallel-connections/
 
-# FOOTER (TODO: REMOVE)
-
-	
-TODO: insert list of all used links here in readable format (replace [ with \])
-TODO: look through velocity notes + push presentations (colin/kazuho) to see if we missed something 
-TODO: add all #link references as links 
-
-\[1\]: http://slashdot2.org
-
-custom sequence diagrams were made with the awesome https://mscgen.js.org/
+---
+*Custom figures were made with https://mscgen.js.org/, https://draw.io and https://cloudconvert.com/svg-to-png.*
