@@ -23,7 +23,7 @@ img
 
 HTTP/2 (h2) is here and it tastes good! One of the most interesting new features is **h2 push**, which allows the server to send data to the browser without having to wait for the browser to explicitly request it first. 
 
-This is useful because normally we need to wait for the browser to parse the .html file and discover the needed links before these resources can be sent. This typically leads to 2 Round-Trip-Times (RTTs) before data arrives at the browser (1 to fetch the .html, then 1 to fetch a resource). So with h2 push, we can **eliminate this exta RTT** and make our site faster! In this it is conceptually similar to inlining critical CSS/JS in the .html, but should give better **cache utilization**. It also helps to ensure **better bandwidth utilization** at the start of the connection. Plenty of posts talk [about][googledevOverview] [the][wikipediaOverview] [basics][grig2013], how to use [it][howtoPHP] [on][howtoIIS] [different][howtoNode] [platforms][howtoJava] and [how][debugChrome1] [to][debugChrome2] [debug][debugOverview] it.
+This is useful because normally we need to wait for the browser to parse the .html file and discover the needed links before these resources can be sent. This typically leads to 2 Round-Trip-Times (RTTs) before data arrives at the browser (1 to fetch the .html, then 1 to fetch a resource). So with h2 push, we can **eliminate this extra RTT** and make our site faster! In this it is conceptually similar to inlining critical CSS/JS in the .html, but should give better **cache utilization**. Push also helps to ensure **better bandwidth utilization** at the start of the connection. Plenty of posts talk [about][googledevOverview] [the][wikipediaOverview] [basics][grig2013], how to use [it][howtoPHP] [on][howtoIIS] [different][howtoNode] [platforms][howtoJava] and [how][debugChrome1] [to][debugChrome2] [debug][debugOverview] it.
 
 [grig2013]: https://www.igvita.com/2013/06/12/innovating-with-http-2.0-server-push/   
 [wikipediaOverview]: https://en.wikipedia.org/wiki/HTTP/2_Server_Push
@@ -242,9 +242,9 @@ Note that these dependency graphs are also needed to optimally profit from Resou
 
 Getting the push order right is particularly important for cold connections and first page loads (nothing cached). For warm connections or in case many critical resources have already been cached, we suddenly get **a lot more options** because we can now push non-critical things: do we first push ad-related resources? our hero image or main content image(s)? Do we start pre-loading video segments? social integrations/comments section? I think it depends on the type of site you run and what experience you want to prioritize for your users. I feel that it is in these situations push will really start to shine and can provide significant benefits.  
 
-I haven't seen much material that looks into how push behaves on warm connections/cross pages in practice (except, of course, for **[this excellent document][rulesOfThumb]**, chapter 1), which is probably because of the caching issues and the fact that it's more difficult to test with existing tools. Because of the many possible permutations and trickiness of push, I predict it will be some time before we see this being used properly. [Akamai's RUM-based system][akamaiAutomatingRUM] also doesn't include this yet because they are focusing on the other use cases first and because:
+I haven't seen much material that looks into how push behaves on warm connections/cross pages in practice (except, of course, for **[this excellent document][rulesOfThumb]**, chapter 1), which is probably because of the caching issues and the fact that it's more difficult to test with existing tools. Because of the many possible permutations and trickiness of push, I predict it will be some time before we see this being used properly. [Akamai's RUM-based system][akamaiAutomatingRUM] also doesn't include this yet because they are focusing on the other use cases first and, in the cross-page case, because:
 
->> *The goal is a) predicting next page correctly b) not burning up a cellular user's data plan. and c) without overcharging our customer for data that an end user doesn't request (getting the push wrong). This was the failure of the 'prerender' resource hint. We can do a) really well and can predict next page with high confidence. But since it's not 100% guaranteed, the blowback from b) and c) are of great concern.* - Colin Bendell
+>> *The goal is a) predicting the next page correctly b) not burning up a cellular user's data plan and c) not overcharging our customer for data that an end user doesn't request (getting the push wrong). This was the failure of the 'prerender' Resource Hint. We can do a) really well and can predict the next page with high confidence. But since it's not 100% guaranteed, the blowback from b) and c) are of great concern.* - Colin Bendell
 
  
 ![Pushing warm connections with caching](images/9_warmconnectionscached.png)
@@ -280,7 +280,7 @@ I don't think it's useful to try to give a full overview at this point, since th
 *note: some of these were overheard during conference questions and talks with others, so not everything has a hard reference.*
 
 * **Priorities are very inconsistent**
-   * HTTP/2 expects the client to specifcy resource priorities in the requests, while servers are allowed to adhere to them or not.
+   * HTTP/2 expects the client to specify resource priorities in the requests, while servers are allowed to adhere to them or not.
    * Firefox properly creates priority trees according to the spec ([dependency-based][browserPriorities4]), while chrome uses only very coarse priorities (weight-based only) and just 1 tree depth ([source1][browserPriorities1], [source2][browserPriorities2], [source3][browserPriorities3])
    * Because of this, the h2o server allows [bypassing of client priorities][browserPriorities3] to get the [expected behaviour][browserPrioritiesh2oReprioritize] (ex. send pushed .css/.js before .html, implying that push should only be used for critical resources). 
    * Akamai has said it will [prioritize .css/.js and adjust the prioritization of fonts][akamaiAutomatingRUM] in their automated push system.
@@ -332,7 +332,7 @@ I don't think it's useful to try to give a full overview at this point, since th
    
    * Pushed resources are not used automatically. The browser still needs to request the resource for it to be evaluated (and executed). 
    
-   * Pushed resources that the browser hasn't requested yet stay in a sort of separate "[unused streams][promiseOfPush]" waiting area for ~5 minutes, so aggressive prefetching for next pages can be problematic.  
+   * Pushed resources that the browser hasn't requested yet stay in a sort of separate "[unused streams][promiseOfPush]" waiting area for ~5 minutes and are then removed, so aggressive prefetching for next pages can be problematic.  
    
    * PUSH_PROMISE messages need to contain "provisional headers", wherein the server tries to predict with which headers the browser will request the resource. If the server gets it wrong (e.g. the response depends on cookies) and the provisional headers don't match the browser-generated request headers, the pushed resource can be ignored by the browser and a second request is made ([source1][promiseOfPush], [source2][rulesOfThumb], [source3][akamaiAutomatingRUM], [source4][howToUsePush]).
 
@@ -386,7 +386,7 @@ I hope you've learned something from this post (I certainly have from the resear
 [soudersParallell]: https://www.stevesouders.com/blog/2008/03/20/roundup-on-parallel-connections/
 
 ---
-**Thanks to Colin Bendell and Maarten Wijnants for their help and feedback**
+**Thanks to Colin Bendell and Maarten Wijnants for their help and feedback. Thanks to all the people who have written and talked about this topic, allowing me to piece together this document.**
 
 *Custom figures were made with https://mscgen.js.org/, https://draw.io and https://cloudconvert.com/svg-to-png.*
 
